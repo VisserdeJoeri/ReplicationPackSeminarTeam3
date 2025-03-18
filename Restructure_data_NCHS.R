@@ -2,11 +2,38 @@
 library(haven)
 library(readxl)
 library(dplyr)
+library(tidyr)
+library(writexl)
+
 
 #The way of restructuring is inspired by and partially taken from Novosad et al. (2022)'s Stata code
 #Starat by reading the data in R
 US_YYYY = read_dta("path")
 
+#The data that Novosad et al. used, we use this to compare our constructed aggregated data with theirs
+US_raw_data = read_dta("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mortality_by_ed_group.dta")
+
+#Convert the data to obtain a dataset with a 'time series' from the Novosad data
+#smaller_raw = US_raw_data %>% select(year, edclass, age, sex, race, tpop)
+#timeSeries = smaller_raw %>%
+  #pivot_wider(names_from = year, values_from = tpop)
+
+#Updated Version (converts to seperate columns -> implementable in Eviews)
+#smaller_raw = US_raw_data %>% select(year, edclass, age, sex, race, tpop)
+#smaller_raw = smaller_raw %>%
+  #Make single identifier
+#  mutate(name = paste(edclass, age, sex, race, sep = "_")) %>% 
+  #Remove old columns
+#  select(-edclass, -age, -sex, -race) %>%
+#  arrange(year)
+#timeSeries <- smaller_raw %>%
+#  pivot_wider(names_from = name, values_from = tpop)
+
+#write_xlsx(timeSeries, "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/totalPopTimeSeries.xlsx")
+
+
+
+#Here we start the function that reads and shapes the yearly data
 struct9298 = function(df, year){
   #origin
   #remove all the foreigners from the data
@@ -356,7 +383,7 @@ struct0321 = function(df, year){
           TRUE ~ 9
         )
       )
-    df = df[df$origin != 9]
+    df = df[df$origin != 9,]
   }
     
   #education
@@ -376,7 +403,7 @@ struct0321 = function(df, year){
           TRUE ~ 9
         )
       )
-  } else if (any(colnames(df) == "educ1989" | colnames(df) == "educ2003")){
+  } else if (any(colnames(df) == "educ1989" & colnames(df) == "educ2003")){
     df <- df %>%
       mutate(
         eduRank = case_when(
@@ -390,7 +417,19 @@ struct0321 = function(df, year){
           educflag == 1 & educ2003 <= 8 ~ 4,
           TRUE ~ 9
         )
+        #In 2021 the educ1989 is completely deleted from the data
       )
+    }else if (any(colnames(df) == "educ2003")){
+        df <- df %>%
+          mutate(
+            eduRank = case_when(
+              educflag == 1 & educ2003 <= 2 ~ 1,
+              educflag == 1 & educ2003 == 3 ~ 2,
+              educflag == 1 & educ2003 <= 5 ~ 3,
+              educflag == 1 & educ2003 <= 8 ~ 4,
+              TRUE ~ 9
+            )
+          )
   } else {
     stop("No correct colnames for education")
   }
@@ -451,6 +490,10 @@ struct0321 = function(df, year){
       clrd = case_when(
         substr(ucod,1,3) %in% paste0("J", 40:47) ~ 1,
         TRUE ~ 0
+      ),
+      corona = case_when(
+        substr(ucod, 1, 4) %in% "U071" ~ 1,
+        TRUE ~ 0
       ))
   
   df = df %>% 
@@ -468,7 +511,7 @@ struct0321 = function(df, year){
   
   #Dan nog de lijst met alle andere diseases
   
-  df = df %>% select(year, eduRank, ager52, agegr, origin, sex, poison, liver, suicide, despair, heart, accidents, clrd, cereb, cancer, lungCancer, other_diseases, one)
+  df = df %>% select(year, eduRank, ager52, agegr, origin, sex, poison, liver, suicide, despair, corona, heart, accidents, clrd, cereb, cancer, lungCancer, other_diseases, one)
   #en alle toe te voegen death causes
   return(df)
 }
@@ -483,19 +526,20 @@ aggYear = function(df){
       liverMort = sum (liver, na.rm = TRUE),
       suicideMort = sum(suicide, na.rm = TRUE),
       despMort = sum(despair, na.rm = TRUE),
+      coronaMort = sum(corona, na.rm = TRUE),
+      cancerMort = sum(cancer, na.rm = TRUE),
+      lungCancerMort = sum(lungCancer, na.rm = TRUE),
       heartMort = sum(heart, na.rm = TRUE),
       accidentsMort = sum(accidents, na.rm = TRUE),
       clrdMort = sum(clrd, na.rm = TRUE),
       cerebMort = sum(cereb, na.rm = TRUE),
-      cancerMort = sum(cancer, na.rm = TRUE),
-      lungCancerMort = sum(lungCancer, na.rm = TRUE),
       otherDiseasesMort = sum(other_diseases, na.rm = TRUE),
     )  %>%
     as.data.frame()
   #Adjust unknown education data (eduRank == 9) distributively to the other data
   #Because the inputted dataframe has the same indices we can take hard numbers
   for(i in 0:87){
-    for(j in 6:17){
+    for(j in 6:18){
       tot = sum(df[(5*i + 1):(5*i + 4), j])
       if (is.na(tot) || tot == 0) next 
       #Calculating the share of unknown education rank that should be added to a specific rank
@@ -540,17 +584,22 @@ calc = function(df, year){
   #y = eduRank(y)
   return(y)
 }
-US_1992 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort1992.csv")
-nice_1992 = calc(US_1992, 1992)
+#US_1992 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort1992.csv")
+#nice_1992 = calc(US_1992, 1992)
 
-US_1999 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort1999.csv")
-nice_1999 = calc(US_1999, 1999)
+#US_1999 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort1999.csv")
+#nice_1999 = calc(US_1999, 1999)
 
-US_2003 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2003.csv")
-nice_2003 = calc(US_2003, 2003)
+#US_2003 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2003.csv")
+#nice_2003 = calc(US_2003, 2003)
 
-US_2020 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/Mort2020US.PubUse.csv")
+#US_2019 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/Mort2019US.PubUse.csv")
+#nice_2019 = calc(US_2019, 2019)
+
+#US_2020 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/Mort2020US.PubUse.csv")
 nice_2020 = calc(US_2020, 2020)
 
-US_2021 = read_dta("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2021us.dta")
+#US_2021 = read_dta("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2021us.dta")
+#US_2021 = as.data.frame(US_2021)
 nice_2021 = calc(US_2021, 2021)
+
