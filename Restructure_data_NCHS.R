@@ -8,7 +8,7 @@ library(writexl)
 
 #The way of restructuring is inspired by and partially taken from Novosad et al. (2022)'s Stata code
 #Starat by reading the data in R
-US_YYYY = read_dta("path")
+#US_YYYY = read_dta("path")
 
 #The data that Novosad et al. used, we use this to compare our constructed aggregated data with theirs
 US_raw_data = read_dta("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mortality_by_ed_group.dta")
@@ -67,16 +67,12 @@ for (col in mortrate_cols) {
 
 full_data = as.data.frame(full_data)
 
-#Calculating the total population independent of race
-x = full_data %>% group_by(age, year, edclass, sex) %>% summarize(tpop_allrace = sum(tpop, na.rm = TRUE)) %>% ungroup()
-full_data = full_data %>% left_join(x, by = c("age", "year", "edclass", "sex"))
-
-#Calculating the total population independent of race and education
-x = full_data %>% group_by(age, year, sex) %>% summarize(tpop_allraceNedu = sum(tpop, na.rm = TRUE)) %>% ungroup()
-full_data = full_data %>% left_join(x, by = c("age", "year", "sex"))
-
 #This one can be used, and later compared to full_data
 original_full_data = full_data
+
+#Deleting all the existing values on mortality and population from the file
+original_full_data = original_full_data %>%
+  mutate(across(-c("year", "edclass", "race", "age", "sex"), ~ NA))
 
 ##############################################
 
@@ -84,6 +80,7 @@ original_full_data = full_data
 struct9298 = function(df, year){
   #origin
   #remove all the foreigners from the data
+  
   df = df[df$restatus <= 3, ]
   
   #Remove people from Oklahoma, Georgia, Rhode Island and South Carolina
@@ -224,6 +221,7 @@ struct9298 = function(df, year){
 struct9902 = function(df, year){
   #origin
   #remove all the foreigners from the data
+  
   df = df[df$restatus <= 3, ]
   
   #age
@@ -374,6 +372,7 @@ struct9902 = function(df, year){
 struct0321 = function(df, year){
   #origin
   #remove all the foreigners from the data
+  
   df = df[df$restatus <= 3, ]
   
   #age
@@ -593,13 +592,16 @@ aggYear = function(df, pop_data){
     as.data.frame()
   
   #Adding the Totalpopulation to our dataframe
-  #Make sure the data is structured exactly right
-  df = df %>% mutate(eduRank = ifelse(eduRank == 0, 9, eduRank))
-  #Nog checken of deze columns bestaan in pop_data
-  df <- df %>%
-    left_join(pop_data, by = c("age", "year", "edclass", "sex", "gender")) %>%
-    mutate(tPop = ifelse(!is.na(pop_data$tpop), pop_data$tpop, tPop))
+  #Check and add tPop if it doesn't exist already
+  if(! "tPop" %in% colnames(df)){
+    df$tPop = NA
+  }
   
+  #Make sure the data is structured exactly right
+  df <- df %>%
+    left_join(pop_data, by = c("agegr", "year", "eduRank", "sex", "origin")) %>%
+    mutate(tPop = coalesce(tpop_2, tPop),
+           tPop = tPop *1000)
   
   
   #Adjust unknown education data (eduRank == 9) distributively to the other data
@@ -614,19 +616,28 @@ aggYear = function(df, pop_data){
       df[5*i + 3, j]  = df[5*i + 3, j] + (df[5*i + 3, j]/tot)*df[5*i + 5, j]
       df[5*i + 4, j]  = df[5*i + 4, j] + (df[5*i + 4, j]/tot)*df[5*i + 5, j]
     }
-    df$tPop[5*i + 1]  = df$tPop[5*i + 1] + (df$tPop[5*i + 1]/tot)*df$tPop[5*i + 5]
-    df$tPop[5*i + 2]  = df$tPop[5*i + 2] + (df$tPop[5*i + 2]/tot)*df$tPop[5*i + 5]
-    df$tPop[5*i + 3]  = df$tPop[5*i + 3] + (df$tPop[5*i + 3]/tot)*df$tPop[5*i + 5]
-    df$tPop[5*i + 4]  = df$tPop[5*i + 4] + (df$tPop[5*i + 4]/tot)*df$tPop[5*i + 5]
+    totpop = sum(df$tPop[(5*i + 1):(5*i + 4)])
+    if(is.na(totpop) || totpop == 0) next
+    df$tPop[5*i + 1]  = df$tPop[5*i + 1] + (df$tPop[5*i + 1]/totpop)*df$tPop[5*i + 5]
+    df$tPop[5*i + 2]  = df$tPop[5*i + 2] + (df$tPop[5*i + 2]/totpop)*df$tPop[5*i + 5]
+    df$tPop[5*i + 3]  = df$tPop[5*i + 3] + (df$tPop[5*i + 3]/totpop)*df$tPop[5*i + 5]
+    df$tPop[5*i + 4]  = df$tPop[5*i + 4] + (df$tPop[5*i + 4]/totpop)*df$tPop[5*i + 5]
   }
   
   #subtracting unknown edurank, as it is already taken care of
   df = df[df$eduRank != 9,]
   
+  #remove tpop_2
+  df = df %>% select(-tpop_2)
+  
+  #rename columns to make convertible to full data frame
+  colnames(df)[colnames(df) == "eduRank"] = "edclass"
+  colnames(df)[colnames(df) == "agegr"] = "age"
+  colnames(df)[colnames(df) == "origin"] = "race"
   return(df)
 }
 
-calc = function(df, year, t_pop){
+calc = function(df, year, t_pop, full){
   if(year <= 1998){
     x = struct9298(df, year)
   } else if(year <= 2002){
@@ -635,12 +646,14 @@ calc = function(df, year, t_pop){
     x = struct0321(df,year)
   }
   y = aggYear(x, t_pop)
-  #y = eduRank(y)
+  
   rownames(y) = NULL
-  compareYear(y, year)
+  if (year <= 2018) {
+    compareYear(y, year)
+    }
   #Use the obtained data to adjust the full dataset, one step closer to getting all needed info
-  adjFull(df, original_full_data, year)
-  return(y)
+  full = adjFull(y, full, year)
+  return(list(full = full, y = y))
 }
 
 #By construction, the dataframe from Novosad and our NCHS aggregation are build the same, we compare the outcomes in both frames
@@ -665,72 +678,62 @@ compareYear = function(df, y){
 
 #This function adjusts the full_data dataframe and it calculates the 'new' mortality rates
 adjFull = function(df, full, y){
-  yearf = full %>% filter(year == y)
-  
-  #Transforming everything we know into the next dataframe
-  yearf = yearf %>%
-    mutate(
-      tpop = ifelse(!is.na(df$tPop), df$tPop, tpop),
-      tmort_t = df$tMort,
-      tmort_h = df$heartMort,
-      tmort_c = df$cancerMort,
-      tmort_d = df$despMort,
-      tmort_a = df$accidentsMort,
-      tmort_cd = df$cerebMort,
-      tmort_corona = df$coronaMort,
-      #Might be necessary to add different death causes as well
-      #Compute the mortality rates
-      mortrate_t = tmort_t / tpop * 100000,
-      mortrate_h = tmort_h / tpop * 100000,
-      mortrate_c = tmort_c / tpop * 100000,
-      mortrate_d = tmort_d / tpop * 100000,
-      mortrate_a = tmort_a / tpop * 100000,
-      mortrate_cd = tmort_cd / tpop * 100000,
-      mortrate_corona = tmort_corona / tpop * 100000
-    )
-  
+  #convert the data from the separate files to the 'main' file
   full = full %>%
-    left_join(yearf, by = c("age", "race", "sex", "edclass", "year"), suffix = c("", "_new")) %>%
+    left_join(df, by = c("age", "race", "sex", "edclass", "year")) %>%
     mutate(
-      tpop = coalesce(tpop_new, tpop),
-      tmort_t = coalesce(tmort_t_new, tmort_t),
-      tmort_h = coalesce(tmort_h_new, tmort_h),
-      tmort_c = coalesce(tmort_c_new, tmort_c),
-      tmort_d = coalesce(tmort_d_new, tmort_d),
-      tmort_a = coalesce(tmort_a_new, tmort_a),
-      tmort_cd = coalesce(tmort_cd_new, tmort_cd),
-      tmort_corona = coalesce(tmort_corona_new, tmort_corona),
-      mortrate_t = coalesce(mortrate_t_new, mortrate_t),
-      mortrate_h = coalesce(mortrate_h_new, mortrate_h),
-      mortrate_c = coalesce(mortrate_c_new, mortrate_c),
-      mortrate_d = coalesce(mortrate_d_new, mortrate_d),
-      mortrate_a = coalesce(mortrate_a_new, mortrate_a),
-      mortrate_cd = coalesce(mortrate_cd_new, mortrate_cd),
-      mortrate_corona = coalesce(mortrate_corona_new, mortrate_corona)
-    ) %>%
-    select(-ends_with("_new"))
-  
+      tpop = coalesce(tPop, tpop),
+      tmort_t = coalesce(tMort, tmort_t),
+      tmort_h = coalesce(heartMort, tmort_h),
+      tmort_c = coalesce(cancerMort, tmort_c),
+      tmort_d = coalesce(despMort, tmort_d),
+      tmort_a = coalesce(accidentsMort, tmort_a),
+      tmort_cd = coalesce(cerebMort, tmort_cd),
+      tmort_corona = coalesce(coronaMort, tmort_corona)
+    )
+  #calculate (if possible) the moratality rates in the main file
+  full = full %>%
+    mutate(
+      mortrate_t = ifelse(tpop == 0 | is.na(tpop), NA, tmort_t / tpop * 100000),
+      mortrate_h = ifelse(tpop == 0 | is.na(tpop), NA, tmort_h / tpop * 100000),
+      mortrate_c = ifelse(tpop == 0 | is.na(tpop), NA, tmort_c / tpop * 100000),
+      mortrate_d = ifelse(tpop == 0 | is.na(tpop), NA, tmort_d / tpop * 100000),
+      mortrate_a = ifelse(tpop == 0 | is.na(tpop), NA, tmort_a / tpop * 100000),
+      mortrate_cd = ifelse(tpop == 0 | is.na(tpop), NA, tmort_cd / tpop * 100000),
+      mortrate_corona = ifelse(tpop == 0 | is.na(tpop), NA, tmort_c / tpop * 100000)
+    ) 
+  #subtract the added columns, which are not needed anymore
+  full = full %>%
+    select( -c("tMort","poisMort", "liverMort","suicideMort","despMort","coronaMort","cancerMort","lungCancerMort", "heartMort", "accidentsMort", "clrdMort", "cerebMort", "otherDiseasesMort", "tPop"))
+  return(full)
+}
+
+
+#Create a function that calculates all education ranks
+educationRank = function(full){
   #Constructing the (cumulative) education ranks restricted on age and sex
   #Calculating the total population independent of race
-  x = full %>% group_by(age, year, edclass, sex) %>% summarize(tpop_allrace = sum(tpop, na.rm = TRUE)) %>% ungroup()
+  x = full %>% group_by(age, year, edclass, sex) %>% summarise(tpop_allrace = sum(tpop, na.rm = TRUE))
   full = full %>% left_join(x, by = c("age", "year", "edclass", "sex"))
-  
+  print(names(full))
   #Calculating the total population independent of race and education
-  x = full %>% group_by(age, year, sex) %>% summarize(tpop_allraceNedu = sum(tpop, na.rm = TRUE)) %>% ungroup()
+  x = full %>% group_by(age, year, sex) %>% summarise(tpop_allraceNedu = sum(tpop, na.rm = TRUE))
   full = full %>% left_join(x, by = c("age", "year", "sex"))
   
   #Constructing the actual (cumulative) education ranks restricted on age and sex
   full = full %>%
     mutate(
       ed_rank_sex = ifelse(year == y & edclass == 1, (tpop_allrace / tpop_allraceNedu) / 2, ed_rank_sex),
-      cum_ed_rank_sex = ifelse(year == y & edclass == 1, (tpop_allrace / tpop_allraceNedu), cum_ed_rank_sex),
+      cum_ed_rank_sex = ifelse(year == y & edclass == 1, (tpop_allrace / tpop_allraceNedu), cum_ed_rank_sex)) %>%
+    mutate(
       cum_ed_rank_sex = ifelse(year == y & edclass > 1, (tpop_allrace / tpop_allraceNedu) + lag(cum_ed_rank_sex), cum_ed_rank_sex)
-      ) %>%
+    ) %>%
     mutate(
       ed_rank_sex = ifelse(year == y & edclass > 1, ((tpop_allrace / tpop_allraceNedu) / 2) + lag(cum_ed_rank_sex), ed_rank_sex),
       ed_rank_sex = ifelse(year == y, ed_rank_sex * 100, ed_rank_sex)
     )
 }
+########################################
 
 #US_1992 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort1992.csv")
 #nice_1992 = calc(US_1992, 1992)
@@ -738,45 +741,74 @@ adjFull = function(df, full, y){
 #compareYear(noStates_nice_1992, 1992)
 
 #US_1999 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort1999.csv")
-#nice_1999 = calc(US_1999, 1999)
+#nice_1999 = calc(US_1999, 1999, processed_all_races)
 
 #US_2003 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2003.csv")
-#nice_2003 = calc(US_2003, 2003)
+#nice_2003 = calc(US_2003, 2003, processed_all_races)
 
 #US_2015 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2015.csv")
 #nice_2015 = calc(US_2015, 2015)
-#x_2015 = compareYear(nice_2015, 2015)
+#x_2015 = compareYear(nice_2015, 2015, processed_all_races)
 #write_xlsx(nice_2015, "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/nice2015.csv")
 
 #US_2019 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/Mort2019US.PubUse.csv")
 #nice_2019 = calc(US_2019, 2019)
 
-#US_2020 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/Mort2020US.PubUse.csv")
-#nice_2020 = calc(US_2020, 2020)
+#US_2020 = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2020.csv")
+#original_full_data = calc(US_2020, 2020, processed_all_races, original_full_data)
 
 #US_2021 = read_dta("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2021us.dta")
 #US_2021 = as.data.frame(US_2021)
-#nice_2021 = calc(US_2021, 2021)
+#nice_2021 = calc(US_2021, 2021, processed_all_races)
 
-#appended_rank_mort = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/appended_rank_mort.csv")
+appended_rank_mort = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/appended_rank_mort.csv")
+
+mort_means = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort_means.csv")
+
+#processed_all_races = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/processed_all_races.csv")
+#processed_all_races = processed_all_races[processed_all_races$year != 1901,]
+#colnames(processed_all_races)[colnames(processed_all_races) == "educ"] = "eduRank"
+#colnames(processed_all_races)[colnames(processed_all_races) == "age"] = "agegr"
+#colnames(processed_all_races)[colnames(processed_all_races) == "race"] = "origin"
+#processed_all_races = processed_all_races %>% mutate(eduRank = ifelse(eduRank == 0, 9, eduRank))
+
+
+####################################################
 
 #Automatic file reader
 #2021 is not a .csv file so we calculate it 'separately'
 path_map = "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/"
 path_spec = "mort"
 path_end = ".csv"
-for(i in 1992:2020){
+
+#Read the total population file
+tpop = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/processed_all_races.csv")
+tpop = tpop[tpop$year != 1901,]
+colnames(tpop)[colnames(tpop) == "educ"] = "eduRank"
+colnames(tpop)[colnames(tpop) == "age"] = "agegr"
+colnames(tpop)[colnames(tpop) == "race"] = "origin"
+tpop = tpop %>% mutate(eduRank = ifelse(eduRank == 0, 9, eduRank))
+for(i in 2007:2020){
   name = paste0("US_", i)
   path = paste0(path_map, path_spec, i, path_end)
   dataYear = read.csv(path)
   assign(name, dataYear)
+  df_actual = get(name)
   
-  #nog een reader, nu voor tpop
-  tpop = paste0("tpop_", i)
-  pathPop = paste0(path_map, ... , path_end)
-  dataPop = read.csv(pathPop)
-  assign(tpop, dataPop)
+  #nog een reader, nu voor tpop LET OP: ALS DIT 1 FILE BLIJFT KAN DEZE UIT DE FOR-LOOP WORDEN GEHAALD !!!
+#  tpop = paste0("tpop_", i)
+#  pathPop = paste0(path_map, "processed_all_races" , path_end)
+#  dataPop = read.csv(pathPop)
+#  assign(tpop, dataPop)
   
   #Adjust the constructed full_data file
-  calc(name, i, tpop)
+  updateList = calc(df_actual, i, tpop, original_full_data)
+  name2 = paste0("nice_", i)
+  assign(name2, updateList$y)
+  original_full_data = updateList$full
 }
+#For 2021, the .dta file
+US_2021 = read_dta("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2021us.dta")
+original_full_data = calc(US_2021, 2021, tpop, original_full_data)
+#Now add the education ranks to the full data file
+original_full_data = educationRank(original_full_data)
