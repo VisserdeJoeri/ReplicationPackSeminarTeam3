@@ -17,11 +17,16 @@ program define prep_inst
     //     drop if inlist(state,13,40,44,46)
     // }
 
+// regel 82-89 uit Novasad prep institutionalized nodig om census toe te voegen
+// uitzoeken dropstates
+
     /* Keep only institutionalized population */
     keep if type == 2 & inrange(year, 2006, 2018)
 
     /* Create sex variable from female (1 = male, 2 = female) */
     gen sex = female + 1
+
+// inlist(?) regel 94-95 
 
     /* Create education class (2-bin) */
     gen edclass = min(educ, 4)
