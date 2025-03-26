@@ -6,7 +6,7 @@ Naast het efficiënt bouwen van appended_mort en de matlab bounds, ga je, als je
 
 **Waarom corrigeren?**
 
-Ik heb voor de jaren rond 2015 getest hoeveel procent van een (year, age, race, gender, educ) groep institutionalized was. Bij sommige groepen was dit vaak minder dan 1% (wit, oud, hoogopgeleid), bij andere groepen bijna 30% (zwart, jong, laagopgeleid). Omdat dit ook terugkomt in de sterftecijfers, is corrigeren hiervoor onvermijdelijk.
+Ik heb voor de jaren rond 2015 getest hoeveel procent van een (year, age, race, gender, educ) groep institutionalized was. Bij sommige groepen was dit vaak minder dan 1% (wit, oud, hoogopgeleid), bij andere groepen bijna 30% (zwart, jong, laagopgeleid). Omdat sterfte onder institutionalized wel terugkomt in de sterftecijfers, is corrigeren hiervoor onvermijdelijk.
 
 **Hoe corrigeer je?**
 
