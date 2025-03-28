@@ -1,1 +1,5 @@
-
+To obtain extrapolated census data
+* use 2000_clean.dta
+* Open Prep_census_extrapolation.do in Stata
+* fill out local path of your 2000_clean.dta location
+* Adjust other paths needed to store temporary and final files
