@@ -5,7 +5,11 @@ library(dplyr)
 library(tidyr)
 library(writexl)
 
+#First we create some functions that will convert the data, these will be used at the end of the code
+#from line 1550
+
 ################################################################################
+#Adjusts the 
 adjRaw = function(full){
   #Here we change the US_raw_data such that we can add our 'new' results
   # Identify columns to keep unchanged
@@ -99,7 +103,11 @@ adjRaw = function(full){
 
 ################################################################################
 
-#Here we start the function that reads and shapes the yearly data
+#Here we start the functions that read and convert the yearly death certificate data from NCHS
+#The years 1992 until 1999 is still included because Novosad analyses these years and we planned on doing it as well
+#However, we did not have access to suitable population data for these years
+#The years are seperate in this way because of the change in ICD9 to ICD10 notation in 1999
+#And because of the change in education notation in 2003
 struct9298 = function(df, year){
   #origin
   #remove all the foreigners from the data
@@ -766,6 +774,7 @@ struct0321 = function(df, year){
   return(df)
 }
 
+#This function aggregates the adjusted death certificates for each year, creating the mortality numbers
 aggYear = function(df, pop_data){
   #Group the data such that each cell specifies a different disease
   df = df %>%
@@ -862,71 +871,53 @@ aggYear = function(df, pop_data){
   return(df)
 }
 
-calc = function(df, year, t_pop, full){
-  if(year <= 1998){
-    x = struct9298(df, year)
-  } else if(year <= 2002){
-    x = struct9902(df,year)
-  } else {
-    x = struct0321(df,year)
-  }
-  y = aggYear(x, t_pop)
-  
-  rownames(y) = NULL
-  if (year <= 2015) {
-    compareYear(y, year)
-    }
-  #Use the obtained data to adjust the full dataset, one step closer to getting all needed info
-  full = adjFull(y, full, year)
-  return(list(full = full, y = y))
-}
-
+#This function compares our generated data with the da
 #By construction, the dataframe from Novosad and our NCHS aggregation are build the same, we compare the outcomes in both frames
 compareYear = function(df, y){
-  yf = full_data %>% filter(year == y)
-  #Compare total mortality
+  if(y < 2016){ 
+    yf = full_data %>% filter(year == y)
+    #Compare total mortality
     print("Agg. NCHS underestimates tMort:")
     print(sum(df$tMort < yf$tmort_t))
     print("Agg. NCHS estimates tMort correctly:")
     print(sum(df$tMort == yf$tmort_t))
-  #Compare total deaths of despair
+    #Compare total deaths of despair
     print("Agg. NCHS underestimates despairMort:")
     print(sum(df$despMort < yf$tmort_d))
     print("Agg. NCHS estimates despairMort correctly:")
     print(sum(df$despMort == yf$tmort_d))
-  #Compute the MSE
+    #Compute the MSE
     print("MSE: total mort")
     print(mean(((df$tMort - yf$tmort_t)/yf$tmort_t * 100) [yf$tmort_t != 0]))
     print("MSE: despair mort")
     print(mean(((df$despMort - yf$tmort_d)/yf$tmort_d*100)[yf$tmort_d != 0]))
+  } else {
+    #This code is to compare the generated data with the 'actual' data separately
+    x = nov_app_rank_mort[nov_app_rank_mort$sex != 0,]
+    x = x[x$race != 0,]
+    x = x %>% arrange(year, race, age_gp, sex, edclass)
     
-    if(y >= 2016){
-      #This code is to compare the generated data with the 'actual' data separately
-      x = nov_app_rank_mort[nov_app_rank_mort$sex != 0,]
-      x = x[x$race != 0,]
-      x = x %>% arrange(year, race, age_gp, sex, edclass)
+    yf = x %>% filter(year == y)
+    #Compare total mortality
+    print("Agg. NCHS underestimates tMort:")
+    print(sum(df$tMort < yf$tmort))
+    print("Agg. NCHS estimates tMort correctly:")
+    print(sum(df$tMort == yf$tmort))
+    #Compare total deaths of despair
+    print("Agg. NCHS underestimates despairMort:")
+    print(sum(df$despMort < yf$dmort))
+    print("Agg. NCHS estimates despairMort correctly:")
+    print(sum(df$despMort == yf$dmort))
+    #Compute the MSE
+    print("MSE: total mort")
+    print(mean(((df$tMort - yf$tmort)/yf$tmort * 100)[yf$tmort != 0]))
+    print("MSE: despair mort")
+    print(mean(((df$despMort - yf$dmort)/yf$dmort*100)[yf$dmort != 0]))
     
-      yf = x %>% filter(year == y)
-      #Compare total mortality
-      print("Agg. NCHS underestimates tMort:")
-      print(sum(df$tMort < yf$tmort))
-      print("Agg. NCHS estimates tMort correctly:")
-      print(sum(df$tMort == yf$tmort))
-      #Compare total deaths of despair
-      print("Agg. NCHS underestimates despairMort:")
-      print(sum(df$despMort < yf$dmort))
-      print("Agg. NCHS estimates despairMort correctly:")
-      print(sum(df$despMort == yf$dmort))
-      #Compute the MSE
-      print("MSE: total mort")
-      print(mean(((df$tMort - yf$tmort)/yf$tmort * 100)[yf$tmort != 0]))
-      print("MSE: despair mort")
-      print(mean(((df$despMort - yf$dmort)/yf$dmort*100)[yf$dmort != 0]))
+  }
+}
 
-    }
-    }
-
-#This function adjusts the full_data dataframe and it calculates the 'new' mortality rates
+#This function adjusts the full_data dataframe and it calculates mortality rates
 adjFull = function(df, full, y){
   #convert the data from the separate files to the 'main' file
   full = full %>%
@@ -1012,194 +1003,29 @@ adjFull = function(df, full, y){
   return(full)
 }
 
-################################################################################
-
-
-#Create a function that calculates all education ranks !!! DELETABLE? !!!
-educationRank = function(full){
-  #Prevent doublenaming columns
-  if(!any(colnames(full) == "tpop_ed_sex")){
-    #Constructing the (cumulative) education ranks restricted on age and sex
-    #Calculating the total population independent of race
-    x = full %>% group_by(age, year, edclass, sex) %>% summarise(tpop_ed_sex = sum(tpop, na.rm = TRUE))
-    full = full %>% left_join(x, by = c("age", "year", "edclass", "sex"))
-    
-    #Calculating the total population independent of race and education
-    x = full %>% group_by(age, year, sex) %>% summarise(tpop_sex = sum(tpop, na.rm = TRUE))
-    full = full %>% left_join(x, by = c("age", "year", "sex"))
-    
-    #Calculating the total population independent of race and sex
-    x = full %>% group_by(age, year, edclass) %>% summarise(tpop_ed_all = sum(tpop, na.rm = TRUE))
-    full = full %>% left_join(x, by = c("age", "year", "edclass"))
-  
-    #Calculating the total population independent of race, sex and education
-    x = full %>% group_by(age, year) %>% summarise(tpop_all = sum(tpop, na.rm = TRUE))
-    full = full %>% left_join(x, by = c("age", "year"))
-  
-    #Calculating the total population independent of nothing
-    x = full %>% group_by(age, year, edclass, sex, race) %>% summarise(tpop_ed_race_sex = sum(tpop, na.rm = TRUE))
-    full = full %>% left_join(x, by = c("age", "year", "edclass", "sex", "race"))
-  
-    #Calculating the total population independent of education
-    x = full %>% group_by(age, year, sex, race) %>% summarise(tpop_race_sex = sum(tpop, na.rm = TRUE))
-    full = full %>% left_join(x, by = c("age", "year", "sex", "race"))
+#This function calls the correct functions for each year
+calc = function(df, year, t_pop, full){
+  if(year <= 1998){
+    x = struct9298(df, year)
+  } else if(year <= 2002){
+    x = struct9902(df,year)
+  } else {
+    x = struct0321(df,year)
   }
-  #print(names(full))
+  y = aggYear(x, t_pop)
   
-  #Constructing the actual (cumulative) education ranks restricted on sex
-  if(!any(colnames(original_full_data) == "ed_rank_sex")){
-    full = full %>%
-      mutate(
-        ed_rank_sex = NA,
-        cum_ed_rank_sex = NA
-      )
-  }
-  #create the ranks
-  full = full %>%
-    mutate(
-      cum_ed_rank_sex = ifelse(edclass == 1 & !is.na(tpop_sex) & tpop_sex != 0, (tpop_ed_sex/tpop_sex), cum_ed_rank_sex),
-      ed_rank_sex = ifelse(edclass == 1, cum_ed_rank_sex / 2, ed_rank_sex)
-    ) %>%
-    mutate(
-      cum_ed_rank_sex = ifelse(edclass > 1 & !is.na(tpop_sex) & tpop_sex != 0, (tpop_ed_sex/tpop_sex) + lag(cum_ed_rank_sex), cum_ed_rank_sex),
-      ed_rank_sex = ifelse(edclass > 1 & !is.na(tpop_sex) & tpop_sex != 0, (tpop_ed_sex/tpop_sex)/2 + lag(cum_ed_rank_sex), ed_rank_sex)
-      ) %>%
-    mutate(
-      cum_ed_rank_sex = ifelse(edclass > 1 & !is.na(tpop_sex) & tpop_sex != 0, (tpop_ed_sex/tpop_sex) + lag(cum_ed_rank_sex), cum_ed_rank_sex),
-      ed_rank_sex = ifelse(edclass > 1 & !is.na(tpop_sex) & tpop_sex != 0, (tpop_ed_sex/tpop_sex)/2 + lag(cum_ed_rank_sex), ed_rank_sex)
-    ) %>%
-    mutate(
-      cum_ed_rank_sex = ifelse(edclass > 1 & !is.na(tpop_sex) & tpop_sex != 0, (tpop_ed_sex/tpop_sex) + lag(cum_ed_rank_sex), cum_ed_rank_sex),
-      ed_rank_sex = ifelse(edclass > 1 & !is.na(tpop_sex) & tpop_sex != 0, (tpop_ed_sex/tpop_sex)/2 + lag(cum_ed_rank_sex), ed_rank_sex)
-    ) %>%
-    mutate(
-      ed_rank_sex = ed_rank_sex * 100
-    )
-  
-  
-  #Constructing the annual (cumulative) education ranks on sex and race
-  if(!any(colnames(full) == "ed_rank_race_sex")){
-    full = full %>%
-      mutate(
-        ed_rank_race_sex = NA,
-        cum_ed_rank_race_sex = NA
-      )
-  }
-  #create the ranks
-  full = full %>%
-    mutate(
-      cum_ed_rank_race_sex = ifelse(edclass == 1 & !is.na(tpop_race_sex) & tpop_race_sex != 0, (tpop_ed_race_sex/tpop_race_sex), cum_ed_rank_race_sex),
-      ed_rank_race_sex = ifelse(edclass == 1, cum_ed_rank_race_sex / 2, ed_rank_race_sex)
-    ) %>%
-    mutate(
-      cum_ed_rank_race_sex = ifelse(edclass > 1 & !is.na(tpop_race_sex) & tpop_race_sex != 0, (tpop_ed_race_sex/tpop_race_sex) + lag(cum_ed_rank_race_sex), cum_ed_rank_race_sex),
-      ed_rank_race_sex = ifelse(edclass > 1 & !is.na(tpop_race_sex) & tpop_race_sex != 0, (tpop_ed_race_sex/tpop_race_sex)/2 + lag(cum_ed_rank_race_sex), ed_rank_race_sex)
-    ) %>%
-    mutate(
-      cum_ed_rank_race_sex = ifelse(edclass > 1 & !is.na(tpop_race_sex) & tpop_race_sex != 0, (tpop_ed_race_sex/tpop_race_sex) + lag(cum_ed_rank_race_sex), cum_ed_rank_race_sex),
-      ed_rank_race_sex = ifelse(edclass > 1 & !is.na(tpop_race_sex) & tpop_race_sex != 0, (tpop_ed_race_sex/tpop_race_sex)/2 + lag(cum_ed_rank_race_sex), ed_rank_race_sex)
-    ) %>%
-    mutate(
-      cum_ed_rank_race_sex = ifelse(edclass > 1 & !is.na(tpop_race_sex) & tpop_race_sex != 0, (tpop_ed_race_sex/tpop_race_sex) + lag(cum_ed_rank_race_sex), cum_ed_rank_race_sex),
-      ed_rank_race_sex = ifelse(edclass > 1 & !is.na(tpop_race_sex) & tpop_race_sex != 0, (tpop_ed_race_sex/tpop_race_sex)/2 + lag(cum_ed_rank_race_sex), ed_rank_race_sex)
-    ) %>%
-    mutate(
-      ed_rank_race_sex = ed_rank_race_sex * 100
-    )
-  
-
-  #Constructing the annual (cumulative) education ranks
-  if(!any(colnames(full) == "ed_rank_all")){
-    full = full %>%
-      mutate(
-        ed_rank_all = NA,
-        cum_ed_rank_all = NA
-      )
-  }
-  #create the ranks
-  full = full %>%
-    mutate(
-      cum_ed_rank_all = ifelse(edclass == 1 & !is.na(tpop_all) & tpop_all != 0, (tpop_ed_all/tpop_all), cum_ed_rank_all),
-      ed_rank_all = ifelse(edclass == 1, cum_ed_rank_all / 2, ed_rank_all)
-    ) %>%
-    mutate(
-      cum_ed_rank_all = ifelse(edclass > 1 & !is.na(tpop_all) & tpop_all != 0, (tpop_ed_all/tpop_all) + lag(cum_ed_rank_all), cum_ed_rank_all),
-      ed_rank_all = ifelse(edclass > 1 & !is.na(tpop_all) & tpop_all != 0, (tpop_ed_all/tpop_all)/2 + lag(cum_ed_rank_all), ed_rank_all),
-    ) %>%
-    mutate(
-      cum_ed_rank_all = ifelse(edclass > 1 & !is.na(tpop_all) & tpop_all != 0, (tpop_ed_all/tpop_all) + lag(cum_ed_rank_all), cum_ed_rank_all),
-      ed_rank_all = ifelse(edclass > 1 & !is.na(tpop_all) & tpop_all != 0, (tpop_ed_all/tpop_all)/2 + lag(cum_ed_rank_all), ed_rank_all),
-    ) %>%
-    mutate(
-      cum_ed_rank_all = ifelse(edclass > 1 & !is.na(tpop_all) & tpop_all != 0, (tpop_ed_all/tpop_all) + lag(cum_ed_rank_all), cum_ed_rank_all),
-      ed_rank_all = ifelse(edclass > 1 & !is.na(tpop_all) & tpop_all != 0, (tpop_ed_all/tpop_all)/2 + lag(cum_ed_rank_all), ed_rank_all),
-    ) %>%
-    mutate(
-      ed_rank_all = ed_rank_all * 100
-    )
-  
-  #In this function we create lagged and lead total population data at the same time
-  full = full %>%
-    group_by(race, edclass, age, sex) %>%
-    mutate(lag1_tpop = lag(tpop, n = 1), 
-           lag2_tpop = lag(tpop, n = 2),
-           lead1_tpop = lead(tpop, n = 1), 
-           lead2_tpop = lead(tpop, n = 2)
-           ) %>%
-    ungroup() %>%
-    mutate(lag1_tpop = ifelse(is.na(lag1_tpop), 0, lag1_tpop), 
-           lag2_tpop = ifelse(is.na(lag2_tpop), 0, lag2_tpop),
-           lead1_tpop = ifelse(is.na(lead1_tpop), 0, lead1_tpop), 
-           lead2_tpop = ifelse(is.na(lead2_tpop), 0, lead2_tpop)
-           )
-  
-  #Creation of rolling5 as well
-  firstYear = min(full$year, na.rm = TRUE)
-  lastYear = max(full$year, na.rm = TRUE)
-  
-  full = full %>%
-    mutate(
-      tpop_rolling5 = NA
-    ) %>%
-    mutate(
-      #Use 5 year bins when all lags are known, i.e. non-NA
-      tpop_rolling5 = ifelse(year > (firstYear + 1) & year < (lastYear - 1), (lag2_tpop + lag1_tpop + tpop + lead1_tpop + lead2_tpop)/5, tpop_rolling5),
-      #Mutate to 3 year bins as we don't have five data points
-      tpop_rolling5 = ifelse(year == (firstYear + 1) | year == (lastYear - 1), (lag1_tpop + tpop + lead1_tpop)/3 , tpop_rolling5)
-    )
-  #Add an extra variable for each group wrt age, sex, race and edclass
-  full = full %>%
-    mutate(
-      demo_group = as.integer(interaction(age, race, sex, edclass))
-    )
-  #Use a regression for the first and last years on each specific group
-  for(demo in unique(full$demo_group)){
-    demo_data = full %>% filter(demo_group == demo)
-    #Regress on the last three years to obtain rolling_Tpop for the last year
-    if(any(demo_data$year == lastYear)){
-      reg_last = lm(tpop ~ year, data = filter(demo_data, year %in% (lastYear - 2):lastYear))
-      pred_last = predict(reg_last, newdata = data.frame(year = lastYear))
-      full = full %>%
-        mutate(
-          tpop_rolling5 = ifelse(year == lastYear & demo_group == demo & !is.na(pred_last) & pred_last > 0, pred_last, tpop_rolling5)
-        )
+  rownames(y) = NULL
+  if (year <= 2015) {
+    compareYear(y, year)
     }
-    #Do the same thing for the first year
-    if(any(demo_data$year == firstYear)){
-      reg_first = lm(tpop ~ year, data = filter(demo_data, year %in% firstYear:(firstYear + 2)))
-      pred_first = predict(reg_first, newdata = data.frame(year = firstYear))
-      full = full %>%
-        mutate(
-          tpop_rolling5 = ifelse(year == firstYear & demo_group == demo & !is.na(pred_first) & pred_first > 0, pred_first, tpop_rolling5)
-        )
-    }
-  }
-  #Now we have obtained a five year rolling window (with some adjustments) for our dataset
-  return(full)
+  #Use the obtained data to adjust the full dataset, one step closer to getting all needed info
+  full = adjFull(y, full, year)
+  return(list(full = full, y = y))
 }
 
 ################################################################################
-#Adds the values for each group in the (extended) dataframe created by Novosad
+#This function adds the mortality and population values for each group in the (extended) dataframe created by Novosad
+#It also calculates the mortality rates and education ranks
 makeAppended = function(full, empty_rank){
   #Hier nog iets mbt de verwerking van institutionalized en raw_tpop
   
@@ -1650,7 +1476,7 @@ makeAppended = function(full, empty_rank){
 }
 
 ################################################################################
-#Adds the mort values to the mort means dataframe that is created by Novosad
+#This function adds the mort values to the mort means dataframe that is created by Novosad
 makeMortMeans = function(app_rank, mort_means){
   app_rank = app_rank %>% 
     mutate(
@@ -1699,6 +1525,25 @@ makeMortMeans = function(app_rank, mort_means){
     select(-c("tpop_rolling", "morta", "mortc", "mortd", "morth", "mortn", "morto", "mortt", "mortv")) %>%
     arrange(year, age, sex, race, cause)
   return(mort_means)
+}
+
+################################################################################
+#This function creates a time series for each group on total population, total mortality and deaths of despair
+makeTimeSeries = function(app_rank){
+  #Select the data we want in the time series and their control variables
+  app_rank = app_rank %>% select(year, edclass, age, race, sex, tpop_rolling_5, tmort, dmort)
+  
+  #Create a combination of all the variables
+  app_rank = app_rank %>%
+    mutate(name = paste(age, race, sex, edclass, sep = "_")) %>%
+    rename(tpop = tpop_rolling_5) %>%
+    select(year, name, tpop, tmort, dmort) %>%
+    arrange(year)
+  
+  timeseries = app_rank %>%
+    pivot_wider(names_from = name, values_from = c(tpop, tmort, dmort))
+  
+  return(timeseries)
 }
 
 ################################################################################
@@ -1781,6 +1626,10 @@ new_appended = new_appended %>% rename(age = age_gp)
 
 #Convert to .csv and get rid of the colname
 write.csv(new_appended, "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/appended_rank_mort_homemade.csv", quote = FALSE)
+
+#Also create time series for each group on tpop, tmort and dmort
+app_time_series = makeTimeSeries(new_appended)
+write.csv(app_time_series, "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/appended_time_series.csv", quote = FALSE)
 
 #Now its time for mort means
 mort_means = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort_means.csv")
