@@ -5,19 +5,19 @@ library(dplyr)
 library(tidyr)
 library(writexl)
 
-#First we create some functions that will convert the data, these will be used at the end of the code
-#from line 1550
+#First we create some functions that will convert the data
+#these will be used at the end of the code, starting from line 1642
 
 ################################################################################
-#Adjusts the 
+#Adjusts the Dataset provided by Novosad sucht that we can fill it with our own data
 adjRaw = function(full){
   #Here we change the US_raw_data such that we can add our 'new' results
-  # Identify columns to keep unchanged
+  #Identify columns to keep unchanged
   added_columns = c("year", "edclass", "age", "race", "sex")
-  # Identify other columns to set to NA
+  #Identify other columns to set to NA
   other_columns = setdiff(names(US_raw_data), added_columns)
 
-  # Create a data frame for new years (2016-2021)
+  #Create a data frame for new years (2016-2021)
   create_years = expand.grid(
     year = 2016:2021,
     edclass = unique(US_raw_data$edclass),
@@ -26,12 +26,12 @@ adjRaw = function(full){
     sex = unique(US_raw_data$sex)
   )
   
-  # Add NA columns for all other variables
+  #Add NA columns for all other variables
   for (col in other_columns) {
     create_years[[col]] = NA
   }
 
-  # Combine with the original dataset
+  #Combine with the original dataset
   full = bind_rows(US_raw_data, create_years) %>%
     #Add a column for corona mortalities
     mutate(mortrate_v = NA, 
@@ -85,7 +85,7 @@ adjRaw = function(full){
           mortrate_r = NA,
           mortrate_o = NA
           ) %>%  #set  to zero: Years until 2019 will never have corona mortality
-    arrange(year)  # Ensure data is ordered by year
+    arrange(year)  #Ensure data is ordered by year
   
   
   #Extended the dataframe by total mortality
@@ -113,9 +113,6 @@ struct9298 = function(df, year){
   #remove all the foreigners from the data
   
   df = df[df$restatus <= 3,]
-  
-  #Remove people from Oklahoma, Georgia, Rhode Island and South Carolina
-  #df = df %>% filter(!(df$staters %in% c(11, 38, 41, 42)))
   
   #age
   #keep the people from correct age group(s) in the data (age 25-29 until 70-74)
@@ -190,22 +187,21 @@ struct9298 = function(df, year){
           ucod >=9800 & ucod<= 9804 ~ 1,
           TRUE ~ 0
           ),
-        #Deze is nog wel even een dingetje, kijken we nu naar 950.0-959.9 0f E950.0-E959.9?
         suicide = case_when(
           ucod >= 9500 & ucod <= 9599 ~ 1,
           TRUE ~ 0
           ),
-        #Liver ziet er kloppend uit in vergelijking met de wikipediapagina
+        #Liver 
         liver = case_when(
           ucod >= 5710 & ucod<= 5719 ~ 1,
           TRUE ~ 0
           ),
-        #Zelfde geldt voor Heart
+        #Heart
         heart = case_when(
           ucod >= 3900 & ucod <= 4299 ~ 1,
           TRUE ~ 0
           ),
-        #Ook (Lung)Cancer
+        #(Lung)Cancer
         cancer = case_when(
           ucod >= 1400 & ucod <= 2089 ~ 1,
           TRUE ~ 0
@@ -214,7 +210,7 @@ struct9298 = function(df, year){
           ucod >= 1622 & ucod <= 1629 ~ 1,
           TRUE ~ 0
         ),
-        #cerebrovascular ook prima gedefinieerd
+        #cerebrovascular
         cereb = case_when(
           ucod >= 4300 & ucod <= 4389 ~ 1,
           TRUE ~ 0
@@ -242,10 +238,9 @@ struct9298 = function(df, year){
       other_diseases = ifelse(accidents + clrd + cereb + cancer + heart + liver + suicide + poison == 0, 1, 0)
     )
   
-  #Dan nog de lijst met alle andere diseases
   
   df = df %>% select(year, eduRank, ager52, agegr, origin, sex, poison, liver, despair, v, suicide, heart, accidents, clrd, cereb, cancer, lungCancer, other_diseases, one)
-  #en alle toe te voegen death causes
+  
   return(df)
 }
 
@@ -319,7 +314,7 @@ struct9902 = function(df, year){
   
   
   #Cause of death
-  #Create binary variables for the main cause of death -> using the same numbers as Novosad et al. used with ICD-9n data
+  #Create binary variables for the main cause of death -> using the same numbers as Novosad et al. used with ICD-10 data
   #Poisoning
   df = df %>% 
     mutate(
@@ -337,14 +332,14 @@ struct9902 = function(df, year){
         substr(ucod,1,4) %in% paste0("Y870") ~ 1,
         TRUE ~ 0
       ),
-      #Liver ziet er kloppend uit in vergelijking met de wikipediapagina
+      #Liver
       liver = case_when(
         substr(ucod,1,3) %in% paste0("K70") ~ 1,
         substr(ucod,1,4) %in% paste0("K70", 0:9) ~ 1,
         substr(ucod,1,4) %in% paste0("K7", 30:49) ~ 1,
         TRUE ~ 0
       ),
-      #Zelfde geldt voor Heart
+      #Heart
       heart = case_when(
         substr(ucod,1,4) %in% paste0("I0", 10:99) ~ 1,
         substr(ucod,1,4) %in% paste0("I00", 0:9) ~ 1,
@@ -355,7 +350,7 @@ struct9902 = function(df, year){
         substr(ucod,1,4) %in% paste0("I", 200:519) ~ 1,
         TRUE ~ 0
       ),
-      #Ook (Lung)Cancer
+      #(Lung)Cancer
       cancer = case_when(
         substr(ucod,1,1) %in% paste0("C") ~ 1,
         TRUE ~ 0
@@ -364,7 +359,7 @@ struct9902 = function(df, year){
         substr(ucod,1,3) %in% paste0("C34") ~ 1,
         TRUE ~ 0
       ),
-      #cerebrovascular ook prima gedefinieerd
+      #cerebrovascular
       cereb = case_when(
         substr(ucod,1,3) %in% paste0("I", 60:69) ~ 1,
         TRUE ~ 0
@@ -374,6 +369,7 @@ struct9902 = function(df, year){
         substr(ucod,1,3) %in% paste0("J", 40:47) ~ 1,
         TRUE ~ 0
       ),
+      #Covid, although it will be zero for this function
       v = case_when(
         substr(ucod, 1, 4) %in% "U071" ~ 1,
         TRUE ~ 0
@@ -393,7 +389,7 @@ struct9902 = function(df, year){
       #Other diseases
       other_diseases = ifelse(accidents + clrd + cereb + cancer + heart + liver + suicide + poison == 0, 1, 0)
     )
-  
+  #Also the Causes per letter is added for the optimal overview
   df = df %>% 
     mutate(
       icd10a = case_when(
@@ -479,7 +475,6 @@ struct9902 = function(df, year){
       )
     )
   
-  #Dan nog de lijst met alle andere diseases
   
   df = df %>% select(year, eduRank, ager52, agegr, origin, sex, poison, liver, suicide, despair, v,  heart, accidents, clrd, cereb, cancer, lungCancer, other_diseases, one,
                      icd10a, icd10b, icd10d, icd10e, icd10f, icd10g, icd10h, icd10i, icd10j, icd10k, icd10l, icd10m, icd10n, icd10o, icd10p, icd10q, icd10r, other_viral, other_resp, regular)
@@ -493,7 +488,7 @@ struct0321 = function(df, year){
   df = df[df$restatus <= 3, ]
   
   #age
-  #keep the people from correct age group(s) in the data (age 25-29 until 70-74)
+  #keep the people from correct age group(s) in the data (age 25-29 until 70-74) We will remove the last group later
   df = df[df$ager52>=31 & df$ager52 <= 40,]
   
   #Convert the numerical values to age-groups
@@ -511,7 +506,7 @@ struct0321 = function(df, year){
       ager52 == 40 ~ "70-74",
       TRUE         ~ NA_character_
     ))
-  #df$ager52 = as.numeric(df$ager52)
+  
   #sex
   #As long as M = 1 and F = 2 its fine
   if (any(df$sex == "M")) {
@@ -535,7 +530,7 @@ struct0321 = function(df, year){
         year = year
       )
     df = df[df$hspanic != 9, ]
-    #'easier' implementable origin ranks as well
+    #'easier' implementable origin (race) ranks as well
     df = df %>%
       mutate(origin = case_when(
         WNH == 1 ~ 1,
@@ -606,33 +601,31 @@ struct0321 = function(df, year){
   }
   
   #Cause of death
-  #Create binary variables for the main cause of death -> using the same numbers as Novosad et al. used with ICD-9n data
-  #Poisoning
+  #Create binary variables for the main cause of death -> using the same numbers as Novosad et al. used with ICD-10 data
   df = df %>% 
     mutate(
       #Create a variable for all the deceased
       one = 1,
-      #Poisoning cases in icd-9: E850-E860 and E980 (Alcohol and drug poisoning with undetermined intent)
+      #Poisoning
       poison = case_when(
         substr(ucod,1,3) %in% paste0("Y", 10:15) ~ 1,
         substr(ucod,1,3) %in% paste0("X", 40:45) ~ 1,
         substr(ucod,1,3) %in% paste0("Y", seq(45, 49, by = 2)) ~ 1,
         TRUE ~ 0
       ),
-      #Deze is nog wel even een dingetje, kijken we nu naar 950.0-959.9 0f E950.0-E959.9?
       suicide = case_when(
         substr(ucod,1,3) %in% paste0("X", 60:84) ~ 1,
         substr(ucod,1,4) %in% paste0("Y870") ~ 1,
         TRUE ~ 0
       ),
-      #Liver ziet er kloppend uit in vergelijking met de wikipediapagina
+      #Liver
       liver = case_when(
         substr(ucod,1,3) %in% paste0("K70") ~ 1,
         substr(ucod,1,4) %in% paste0("K70", 0:9) ~ 1,
         substr(ucod,1,4) %in% paste0("K7", 30:49) ~ 1,
         TRUE ~ 0
       ),
-      #Zelfde geldt voor Heart
+      #Heart
       heart = case_when(
         substr(ucod,1,4) %in% paste0("I0", 10:99) ~ 1,
         substr(ucod,1,4) %in% paste0("I00", 0:9) ~ 1,
@@ -643,7 +636,7 @@ struct0321 = function(df, year){
         substr(ucod,1,4) %in% paste0("I", 200:519) ~ 1,
         TRUE ~ 0
       ),
-      #Ook (Lung)Cancer
+      #(Lung)Cancer
       cancer = case_when(
         substr(ucod,1,1) %in% paste0("C") ~ 1,
         TRUE ~ 0
@@ -652,7 +645,7 @@ struct0321 = function(df, year){
         substr(ucod,1,3) %in% paste0("C34") ~ 1,
         TRUE ~ 0
       ),
-      #cerebrovascular ook prima gedefinieerd
+      #cerebrovascular
       cereb = case_when(
         substr(ucod,1,3) %in% paste0("I", 60:69) ~ 1,
         TRUE ~ 0
@@ -682,7 +675,7 @@ struct0321 = function(df, year){
       #Other diseases
       other_diseases = ifelse(accidents + clrd + cereb + cancer + heart + liver + suicide + poison == 0, 1, 0)
     )
-  
+  #All deceases per letter code are added as well
   df = df %>% 
     mutate(
       icd10a = case_when(
@@ -767,8 +760,6 @@ struct0321 = function(df, year){
         TRUE ~ 0
       ))
       
-  #Dan nog de lijst met alle andere diseases
-  
   df = df %>% select(year, eduRank, ager52, agegr, origin, sex, poison, liver, suicide, despair, v, heart, accidents, clrd, cereb, cancer, lungCancer, other_diseases, one,
                      icd10a, icd10b, icd10d, icd10e, icd10f, icd10g, icd10h, icd10i, icd10j, icd10k, icd10l, icd10m, icd10n, icd10o, icd10p, icd10q, icd10r, other_viral, other_resp, regular)
   return(df)
@@ -826,7 +817,8 @@ aggYear = function(df, pop_data){
   df = df %>%
     left_join(pop_data, by = c("agegr", "year", "eduRank", "sex", "origin")) %>%
     mutate(tPop = coalesce(tpop_2, tPop),
-           tPop = tPop *1000)
+           #tPop = tPop *1000
+           )
   
   
   #Those can be deleted afterwards, but let's see how it goes
@@ -849,12 +841,13 @@ aggYear = function(df, pop_data){
       df[[mortx]][5*i + 3]  = df[[mortx]][5*i + 3] + (df[[mortx]][5*i + 3]/tot)*df[[mortx]][5*i + 5]
       df[[mortx]][5*i + 4]  = df[[mortx]][5*i + 4] + (df[[mortx]][5*i + 4]/tot)*df[[mortx]][5*i + 5]
     }
-    totpop = sum(df$tPop[(5*i + 1):(5*i + 4)])
-    if(is.na(totpop) || totpop == 0) next
-    df$tPop[5*i + 1]  = df$tPop[5*i + 1] + (df$tPop[5*i + 1]/totpop)*df$tPop[5*i + 5]
-    df$tPop[5*i + 2]  = df$tPop[5*i + 2] + (df$tPop[5*i + 2]/totpop)*df$tPop[5*i + 5]
-    df$tPop[5*i + 3]  = df$tPop[5*i + 3] + (df$tPop[5*i + 3]/totpop)*df$tPop[5*i + 5]
-    df$tPop[5*i + 4]  = df$tPop[5*i + 4] + (df$tPop[5*i + 4]/totpop)*df$tPop[5*i + 5]
+    #These lines of code are not necessary if the tpop data for unknown ditribution rank is already distributed, i.e. no unknown eduRank left
+    #totpop = sum(df$tPop[(5*i + 1):(5*i + 4)])
+    #if(is.na(totpop) || totpop == 0) next
+    #df$tPop[5*i + 1]  = df$tPop[5*i + 1] + (df$tPop[5*i + 1]/totpop)*df$tPop[5*i + 5]
+    #df$tPop[5*i + 2]  = df$tPop[5*i + 2] + (df$tPop[5*i + 2]/totpop)*df$tPop[5*i + 5]
+    #df$tPop[5*i + 3]  = df$tPop[5*i + 3] + (df$tPop[5*i + 3]/totpop)*df$tPop[5*i + 5]
+    #df$tPop[5*i + 4]  = df$tPop[5*i + 4] + (df$tPop[5*i + 4]/totpop)*df$tPop[5*i + 5]
   }
 
   
@@ -871,8 +864,9 @@ aggYear = function(df, pop_data){
   return(df)
 }
 
-#This function compares our generated data with the da
+#This function compares our generated data with the data from Novosad 
 #By construction, the dataframe from Novosad and our NCHS aggregation are build the same, we compare the outcomes in both frames
+#Note that y = year needs to be input
 compareYear = function(df, y){
   if(y < 2016){ 
     yf = full_data %>% filter(year == y)
@@ -1027,8 +1021,6 @@ calc = function(df, year, t_pop, full){
 #This function adds the mortality and population values for each group in the (extended) dataframe created by Novosad
 #It also calculates the mortality rates and education ranks
 makeAppended = function(full, empty_rank){
-  #Hier nog iets mbt de verwerking van institutionalized en raw_tpop
-  
   #Adding both sexes to obtain their sum
   both_sex = full %>%
     group_by(year, age, race, edclass) %>%
@@ -1090,12 +1082,15 @@ makeAppended = function(full, empty_rank){
   app_rank = empty_rank %>%
     arrange(year, race, age_gp, sex, edclass)
   
+  #Add variables for COVID, non-Despair and non-COVID to the dataframe
   app_rank = app_rank %>%
     mutate(
       vmort = NA,
       vmortrate = NA,
       nmort = NA,
-      nmortrate = NA
+      nmortrate = NA,
+      xmort = NA,
+      xmortrate = NA
     )
   
   #Add the new columns to app rank mort
@@ -1142,7 +1137,8 @@ makeAppended = function(full, empty_rank){
       rmort = coalesce(tmort_r, rmort)
     ) %>%
     mutate(
-      nmort = tmort - dmort
+      nmort = tmort - dmort,
+      xmort = tmort - vmort
     )
   app_rank = app_rank %>% 
     select(-c("tpop", "tmort_v", "tmort_icd10a", "tmort_icd10b", "tmort_icd10d", "tmort_icd10e", "tmort_icd10f",
@@ -1150,7 +1146,7 @@ makeAppended = function(full, empty_rank){
               "tmort_icd10n", "tmort_icd10o", "tmort_icd10p", "tmort_icd10q", "tmort_icd10r", "tmort_or", "tmort_o", "tmort_r", "tmort_t",
               "tmort_h", "tmort_c", "tmort_cd", "tmort_a", "tmort_d", "tmort_resp", "tmort_icd10ab", "tmort_p", "tmort_l", "tmort_s", "tmort_lungc"))
   
-  #First we will change the rolling_tpop5, starting of with creating lags and leads
+  #First we will create the rolling_tpop5, starting of with creating lags and leads
   firstYear = min(app_rank$year, na.rm = TRUE)
   lastYear = max(app_rank$year, na.rm = TRUE)
   
@@ -1273,7 +1269,9 @@ makeAppended = function(full, empty_rank){
       vmortrate = ifelse(!is.na(tpop_rolling_5) & (tpop_rolling_5 != 0), (vmort / tpop_rolling_5)*100000, 0),
       vsurvrate = ifelse(!is.na(tpop_rolling_5) & (tpop_rolling_5 != 0), (100000 - vmortrate), 0),
       nmortrate = ifelse(!is.na(tpop_rolling_5) & (tpop_rolling_5 != 0), (nmort / tpop_rolling_5)*100000, 0),
-      nsurvrate = ifelse(!is.na(tpop_rolling_5) & (tpop_rolling_5 != 0), (100000 - nmortrate), 0)
+      nsurvrate = ifelse(!is.na(tpop_rolling_5) & (tpop_rolling_5 != 0), (100000 - nmortrate), 0),
+      xmortrate = ifelse(!is.na(tpop_rolling_5) & (tpop_rolling_5 != 0), (xmort / tpop_rolling_5)*100000, 0),
+      xsurvrate = ifelse(!is.na(tpop_rolling_5) & (tpop_rolling_5 != 0), (100000 - xmortrate), 0)
     )
   
   #Last but not least its time for the education ranks, starting of with creating total pop data for each subgroup
@@ -1381,7 +1379,7 @@ makeAppended = function(full, empty_rank){
   app_rank = app_rank %>%
     select(-add_sum)
   
-  #No need to filter for thosee, as it is done automatically by separating sex and race
+  #No need to filter for those, as it is done automatically by separating sex and race
   x = app_rank
   y = x %>% group_by(age_gp, year, edclass, sex, race) %>% summarise(add_sum = sum(tpop_rolling_5, na.rm = TRUE))
   app_rank = app_rank %>% 
@@ -1491,6 +1489,12 @@ makeMortMeans = function(app_rank, mort_means){
                  distinct() %>%
                  mutate(cause = "v")
                )
+  mort_means = mort_means %>%
+    bind_rows( mort_means %>%
+                 select(year, age, sex, race) %>%
+                 distinct() %>%
+                 mutate(cause = "x")
+    )
   #Combine the mortality numbers for each group
   cum_rank = app_rank %>%
     group_by(year, age, race, sex) %>%
@@ -1503,7 +1507,8 @@ makeMortMeans = function(app_rank, mort_means){
       mortn = sum(nmort, na.rm = TRUE),
       morto = sum(omort, na.rm = TRUE),
       mortt = sum(tmort, na.rm = TRUE),
-      mortv = sum(vmort, na.rm = TRUE)
+      mortv = sum(vmort, na.rm = TRUE),
+      mortx = sum(xmort, na.rm = TRUE)
     )
   mort_means = mort_means %>%
     left_join(cum_rank, by = c("year", "age", "sex", "race")) %>%
@@ -1518,17 +1523,19 @@ makeMortMeans = function(app_rank, mort_means){
         cause == "o" ~ (morto / tpop_rolling) * 100000,
         cause == "t" ~ (mortt / tpop_rolling) * 100000,
         cause == "v" ~ (mortv / tpop_rolling) * 100000,
+        cause == "x" ~ (mortx / tpop_rolling) * 100000,
         TRUE ~ 0
       )
     )
   mort_means = mort_means %>%
-    select(-c("tpop_rolling", "morta", "mortc", "mortd", "morth", "mortn", "morto", "mortt", "mortv")) %>%
+    select(-c("tpop_rolling", "morta", "mortc", "mortd", "morth", "mortn", "morto", "mortt", "mortv", "mortx")) %>%
     arrange(year, age, sex, race, cause)
   return(mort_means)
 }
 
 ################################################################################
 #This function creates a time series for each group on total population, total mortality and deaths of despair
+#The results from this function did not make it to the final paper
 makeTimeSeries = function(app_rank){
   #Select the data we want in the time series and their control variables
   app_rank = app_rank %>% select(year, edclass, age, race, sex, tpop_rolling_5, tmort, dmort)
@@ -1546,29 +1553,122 @@ makeTimeSeries = function(app_rank){
   return(timeseries)
 }
 
+#This function creates the data for the Table in Appendix B, it calculates the share of each cause of death on the total mortality for a given year
+makeProportions = function(app_rank, y){
+  #Create a data frame for only a given year and separate race and sex, for age 25-69
+  year_app = app_rank %>% filter(year == y, race != 0, sex != 0, age < 70)
+  #Subtract all different death causes
+  mort_names = grep("mort$", colnames(year_app), value = TRUE)
+  mort_names = setdiff(mort_names, "tmort")
+  #Create a new data frame for all causes
+  df = data.frame(
+    cause = mort_names,
+    share = NA
+  )
+  total_mort = sum(year_app$tmort)
+  for(mort in mort_names){
+    cause_mort = sum(year_app[[mort]])
+    df$share[df$cause == mort] = 100 * cause_mort / total_mort
+  }
+  #NOTE: Diseases in the respiratory system is cdmort + icd10jmort (J0-J99)
+  return(df)
+}
+
+#This function calculates the share of covid as first death cause to total mortality, on a given year
+#The results did not make it to the final paper
+shareOfCovid = function(app_rank, y){
+  year_app = app_rank %>%
+    select(year, age, race, sex, edclass, tmort, vmort) %>% 
+    filter(year == y, sex != 0, race != 0, age < 70) 
+  
+  tmort_all = sum(year_app$tmort)
+  
+  #calculate share of corona mortality in each education class
+  year_app_edclass = year_app %>% 
+    group_by(edclass) %>%
+    summarise(vmort_edclass = sum(vmort, na.rm = TRUE),
+              tmort_edclass = sum(tmort, na.rm = TRUE)) %>%
+    mutate(share_edclass = 100 * vmort_edclass / tmort_all,
+           share_tmort_edclass = 100 * vmort_edclass / tmort_edclass) %>%
+    ungroup()
+  
+  #calculate the share of corona mortality for each education class
+  totalvrate = sum(year_app_edclass$share_edclass)
+  
+  year_app_edclass = year_app_edclass %>%
+    mutate(vshare_edclass = 100 * share_edclass / totalvrate)
+  
+  #calculate share of corona mortality in each education class per age group
+  year_app_age_edclass = year_app %>% 
+    group_by(age, edclass) %>%
+    summarise(vmort_age_edclass = sum(vmort, na.rm = TRUE),
+              tmort_age_edclass = sum(tmort, na.rm = TRUE)) %>%
+    mutate(share_age_edclass = 100 * vmort_age_edclass / tmort_all,
+           share_tmort_age_edclass = 100 * vmort_age_edclass / tmort_age_edclass) %>%
+    ungroup()
+  
+  extra_year = year_app_age_edclass %>%
+    group_by(age) %>%
+    summarise(vmort_share_age = sum(share_age_edclass, na.rm = TRUE))
+  
+  year_app_age_edclass = year_app_age_edclass %>%
+    left_join(extra_year, by = "age") %>%
+    mutate(vshare_edclass_by_age = ifelse(vmort_share_age != 0, 100 * share_age_edclass / vmort_share_age))
+  
+  #calculate the share of corona mortality for each age and edclass
+  totalvrate = sum(year_app_age_edclass$share_age_edclass)
+  
+  year_app_age_edclass = year_app_age_edclass %>%
+    mutate(vshare_age_edclass = 100 * share_age_edclass / totalvrate)
+  
+  #calculate share of corona mortality in each age group
+  year_app_age = year_app %>%
+    group_by(age) %>%
+    summarise(vmort_age = sum(vmort, na.rm = TRUE),
+              tmort_age = sum(tmort, na.rm = TRUE)) %>%
+    mutate(share_age = 100 * vmort_age / tmort_all,
+           share_tmort_age = 100 * vmort_age / tmort_age) %>%
+    ungroup()
+  
+  #calculate the share of corona mortality for each age
+  totalvrate = sum(year_app_age$share_age)
+  
+  year_app_age = year_app_age %>%
+    mutate(vshare_age = 100 * share_age / totalvrate)
+  
+  return(list(by_edclass = year_app_edclass, by_age_edclass = year_app_age_edclass, by_age = year_app_age))
+}
 ################################################################################
-#Here all the functions are initialized and the program can be run, starting of with deriving the mortality numbers per group
+#Here all the functions are initialized and the program can be run
+#starting of with deriving the population data and  mortality numbers per group
 
 #The data that Novosad et al. used, we use this to compare our constructed aggregated data with theirs
-US_raw_data = read_dta("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mortality_by_ed_group.dta")
+#read mortality_by_ed_group_data from Novosad
+US_raw_data = read_dta("path")
 full_data = adjRaw(US_raw_data)
 #Deleting all the existing values on mortality and population from the file
 original_full_data = full_data %>%
   mutate(across(-c("year", "edclass", "race", "age", "sex"), ~ NA))
 
-#Automatic file reader
-#2021 is not a .csv file so we calculate it 'separately'
-path_map = "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/"
+#Read the total population file and adjust such that it is usable as function input
+tpop = read.csv("path")
+tpop = tpop[tpop$year != 1901,]
+tpop = tpop  %>%
+  rename( "eduRank" = "edclass",
+          "agegr" = "age",
+          "origin" = "race") %>% 
+  mutate(eduRank = ifelse(eduRank == 0, 9, eduRank),
+         inst = ifelse(is.na(inst), 0, inst),
+         tpop_2 = non_inst + inst)
+
+#Automatic mortality file reader, use 
+##Mortality Data - Vital Statistics NCHS Multiple Cause of Death Data##
+#U.S. Data Files - Death Data
+#from National Bureau of Economic Research
+#2021 is not a .csv file, so we calculate it 'separately'
+path_map = "path_start"
 path_spec = "mort"
 path_end = ".csv"
-
-#Read the total population file
-tpop = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/processed_all_races.csv")
-tpop = tpop[tpop$year != 1901,]
-colnames(tpop)[colnames(tpop) == "educ"] = "eduRank"
-colnames(tpop)[colnames(tpop) == "age"] = "agegr"
-colnames(tpop)[colnames(tpop) == "race"] = "origin"
-tpop = tpop %>% mutate(eduRank = ifelse(eduRank == 0, 9, eduRank))
 
 #Loop over the years 2000-2020 to obtain a full data set
 for(i in 2000:2021){
@@ -1580,7 +1680,7 @@ for(i in 2000:2021){
   
   #For 2021, we have to read a .dta file (.csv was not avaiable)
   if(i == 2021){
-    df_actual = read_dta("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort2021us.dta")
+    df_actual = read_dta("path")
   }
   
   #Adjust the constructed full_data file
@@ -1594,16 +1694,17 @@ for(i in 2000:2021){
   gc()
 }
 #Convert to .csv file
-write.csv(original_full_data, "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/aggrData.csv")
-use_full_data = original_full_data %>% filter(year %in% 2000:2021)
+write.csv(original_full_data, "path")
+#Subtract the part of the data that is useful for our creating data needed to calculate mortality bounds
+use_full_data = original_full_data %>% filter(year %in% 2000:2021, age != "70-74")
 
 ################################################################################
 
-#Creation of the appended mort rank
-appended_rank_mort = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/appended_rank_mort.csv")
+#Creation of the appended_mort_rank, download file from Novosads github
+appended_rank_mort = read.csv("path")
 #Store Novosad's values and work with the other frame
 nov_app_rank_mort = appended_rank_mort
-#Create a data frame for 'new' years (2019-2021)
+#Create a data frame for 'new' years (2019-2021), i.e. the years that are not used by Novosad
 create_years = expand.grid(
   year = 2019:2021,
   edclass = unique(appended_rank_mort$edclass),
@@ -1618,28 +1719,30 @@ for(col in col_to_na){
 } 
 appended_rank_mort = bind_rows(appended_rank_mort, create_years) %>%
   arrange(year, age_gp, race, sex, edclass)
-use_this_app = appended_rank_mort %>% filter(year >= 2000)
+use_this_app = appended_rank_mort %>% filter(year >= 2000, age_gp != 70)
 
 #Add the empty app_rank to the function
 new_appended = makeAppended(use_full_data, use_this_app)
-new_appended = new_appended %>% rename(age = age_gp)
+new_appended = new_appended %>% 
+  rename(age = age_gp) %>%
+  mutate(race = ifelse(race == 0, 5, race))
 
 #Convert to .csv and get rid of the colname
-write.csv(new_appended, "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/appended_rank_mort_homemade.csv", quote = FALSE)
+write.csv(new_appended, "path_to_store", quote = FALSE)
 
 #Also create time series for each group on tpop, tmort and dmort
 app_time_series = makeTimeSeries(new_appended)
-write.csv(app_time_series, "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/appended_time_series.csv", quote = FALSE)
+write.csv(app_time_series, "path_to_store", quote = FALSE)
 
-#Now its time for mort means
-mort_means = read.csv("C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort_means.csv")
+#Now its time for mort_means, downloadable from Novosads github
+mort_means = read.csv("path")
 
 #Adjust the mort means frame s.t. its suitable for 2000-2021
 empty_mort = mort_means %>%
   mutate(mort = NA)
 
 #Expand the grid and remove the mort values, i.e. set to NA, we will generate those ourselves
-other_columns = setdiff(names(empty_mort), c("year", "age", "race", "sex"))
+other_columns = setdiff(names(empty_mort), c("year", "age", "race", "sex", "cause"))
 create_years = expand.grid(
   year = 2019:2021,
   age = unique(empty_mort$age),
@@ -1654,9 +1757,23 @@ for (col in other_columns) {
 #Take the empty mort means for 2000-20212
 empty_mort = bind_rows(empty_mort, create_years) %>%
   arrange(year, age, race, sex)
-empty_mort = empty_mort %>% filter(year >= 2000)
+empty_mort = empty_mort %>% filter(year >= 2000, age != 70)
 #Determine the mort values
 new_mortm = makeMortMeans(new_appended, empty_mort)
-write.csv(new_mortm, "C:/Users/michi/OneDrive/Documenten/Eur Jaar 3/Blok 4/Major/Data US/mort_means_homemade.csv", quote = FALSE)
+write.csv(new_mortm, "path_to_store", quote = FALSE)
 
 ################################################################################
+#Making a time series on the share of each death cause on the total mortality
+#Part of this time series can be seen in the table on the share of death in Appendix B
+for(i in 2000:2021){
+  if(i == 2000){
+    all_share = makeProportions(new_appended, i)
+    all_share = all_share %>% rename_with(~ paste0("share", i), .cols = "share")
+    next
+  }
+  new_share = makeProportions(new_appended, i)
+  all_share = all_share %>%
+    left_join(new_share, by = "cause") %>%
+    rename_with(~ paste0("share", i), .cols = "share")
+}
+write.csv(all_share, "store_path", quote = FALSE)
