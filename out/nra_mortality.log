@@ -1,0 +1,3795 @@
+------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/Stata/out/nra_mortality.log
+  log type:  text
+ opened on:   9 Apr 2025, 13:59:00
+
+. 
+. /* store current path (assumed to be repo root folder) */
+. global mcode /Users/Stata
+
+. 
+. pwd
+/Users/Stata
+
+. 
+. /* create new folders */
+. cap mkdir $mdata/tmp
+
+. foreach f in bounds nchs nhis matlab_inputs nhis/clean {
+  2.   cap mkdir $mdata/int/`f'
+  3. }
+
+. 
+. /*********************************************************/
+. /* 1. Build mortality file from restricted NCHS data     */
+. /*********************************************************/
+. // Line commented out since it requires restricted data
+. // do $mcode/make_mortality_data
+. 
+. /*********************/
+. /* 2. Prep NHIS data */
+. /*********************/
+. // do $mcode/make_nhis
+. 
+. /***************************************/
+. /* 3. Prepare inputs for Matlab solver */
+. /***************************************/
+. 
+. /* prepare the inputs for the matlab mort-solver */
+. //do $mcode/b/prep_matlab_inputs.do
+. 
+. /********************************************/
+. /* 4. Run all versions of the Matlab solver */
+. /********************************************/
+. //do $mcode/run_matlab_solver.do
+. 
+. /************************************************************/
+. /* 5. Process solver output and generate all paper results  */
+. /************************************************************/
+. do $mcode/make_results.do
+
+. /*************************/
+. /* PROCESS SOLVER OUTPUT */
+. /*************************/
+. 
+. /* append parallel matlab bounds into a single file */
+. // do $mcode/b/append_parallel_matlab_bounds.do
+. 
+. /*********************************************************************************
+> ****/
+. /* NOTE: EVERYTHING ABOVE HERE SAVES BOUNDS TO mdata/int/bounds                   
+>           */
+. /*       EVERYTHING BELOW HERE LOADS BOUNDS FROM mdata/bounds                     
+>           */
+. /*                                                                                
+>    */
+. /* This is because we supply mdata/bounds/ as a basis for replication, and the pri
+> or */
+. /* stuff is only there to verify that the bounds are produced correctly.
+> 
+>    However, some intermediate files below continue to be saved to int/ */
+. 
+. /*********************************************************************************
+> ****/
+. 
+. /* take the matlab output CSV and reshape to a directly graphable dataset */
+. // do $mcode/b/process_matlab_bounds.do
+. 
+. /*******************************/
+. /* GENERATE TABLES AND FIGURES */
+. /*******************************/
+. 
+. // cap erase $out/mort_paper_stats.csv
+. 
+. /* main figures */
+. // do $mcode/a/figure_scatter_smooth.do
+. // do $mcode/a/figure_scatter_granular.do
+. // do $mcode/a/figure_trend_bounds.do
+. // do $mcode/a/figure_causes.do
+. 
+. /* updated appendix tables and figures */
+. // do $mcode/a/calc_standardized_rates.do
+. // do $mcode/a/table_icd_causes.do
+. 
+. /* calculate stats for paper body */
+. // do $mcode/a/paper_stats.do
+. 
+. /* comparison of naive and bounded mortality estimates for one group */
+. do $mcode/a/figure_naive_compare.do
+
+. /****************************************************/
+. /* FIGURE: Naive vs. Bound Comparison (2000–2021)   */
+. /****************************************************/
+. 
+. /* Assumes globals already defined:
+>    global out /Users/Stata/out
+>    global tmp /Users/Stata/temp
+>    global mdata /Users/Stata/data
+> */
+. 
+. /****************************************************/
+. /* 0. Identify bin boundaries for naive graphs      */
+. /****************************************************/
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. * Cut years into 2-year bins starting at 2000
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) tpop_rolling tmort tmortrate dmortrate ed_rank_* cum_ed_rank_*, //
+> /
+>     by(year_bin age sex race edclass)
+
+. rename year_bin year
+
+. 
+. * Optional inspection
+. list edclass cum_ed_rank_sex if year == 2000 & sex == 2 & race == 1 & age == 45
+
+      +--------------------+
+      | edclass   cu~k_sex |
+      |--------------------|
+ 281. |       1   .0945611 |
+ 282. |       2     .41856 |
+ 283. |       3   .7082241 |
+ 284. |       4          1 |
+      +--------------------+
+
+. list edclass cum_ed_rank_sex if year == 2000 & sex == 2 & race == 1 & age == 50
+
+      +--------------------+
+      | edclass   cu~k_sex |
+      |--------------------|
+ 341. |       1   .1066438 |
+ 342. |       2   .4629489 |
+ 343. |       3   .7376674 |
+ 344. |       4          1 |
+      +--------------------+
+
+. 
+. /****************************************************/
+. /* 1. Collapse mortality rates into 2-year averages */
+. /****************************************************/
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. keep year sex race age edclass tmortrate dmortrate cum_ed_rank_sex
+
+. 
+. egen ycut = cut(year), at(2000(2)2022)
+
+. collapse (mean) tmortrate dmortrate cum_ed_rank_sex, by(ycut sex race age edclass)
+
+. rename ycut year
+
+. 
+. * Calculate baseline-relative mortality changes (baseline: 2001)
+. global group sex race age edclass
+
+. 
+. gen ttmp = tmortrate if year == 2000
+(5,400 missing values generated)
+
+. gen dtmp = dmortrate if year == 2000
+(5,400 missing values generated)
+
+. bys $group: egen tbaserate = max(ttmp)
+
+. bys $group: egen dbaserate = max(dtmp)
+
+. 
+. gen tmort_change = tmortrate / tbaserate
+
+. gen dmort_change = dmortrate / dbaserate
+
+. 
+. sort year
+
+. list year tmortrate tmort_change if edclass == 1 & sex == 1 & race == 1 & age == 2
+> 5
+
+      +----------------------------+
+      | year   tmortr~e   tmort_~e |
+      |----------------------------|
+ 434. | 2000   343.9403          1 |
+ 782. | 2002   336.3761   .9780072 |
+1280. | 2004   356.3268   1.036013 |
+2013. | 2006   367.3511   1.068067 |
+2311. | 2008   389.0607   1.131187 |
+      |----------------------------|
+2886. | 2010   393.2388   1.143334 |
+3646. | 2012   379.7092   1.103997 |
+3825. | 2014   428.3627   1.245457 |
+4687. | 2016   549.3485   1.597221 |
+4952. | 2018   561.1251   1.631461 |
+      |----------------------------|
+5802. | 2020   737.8478   2.145279 |
+      +----------------------------+
+
+. list year dmortrate dmort_change if edclass == 1 & sex == 2 & race == 1 & age == 5
+> 0
+
+      +----------------------------+
+      | year   dmortr~e   dmort_~e |
+      |----------------------------|
+ 437. | 2000    45.4187          1 |
+ 786. | 2002   67.27579   1.481236 |
+1514. | 2004   83.12262   1.830141 |
+1925. | 2006    102.379   2.254116 |
+2686. | 2008   121.9279   2.684532 |
+      |----------------------------|
+2742. | 2010   142.6462   3.140694 |
+3570. | 2012   180.9482   3.984003 |
+4130. | 2014   213.7499   4.706209 |
+4514. | 2016   244.1416   5.375354 |
+5202. | 2018   247.4899   5.449076 |
+      |----------------------------|
+5431. | 2020   340.0357    7.48669 |
+      +----------------------------+
+
+. 
+. recode race 0 = 5   // Standardize race codes
+(0 changes made to race)
+
+. 
+. save "$tmp/rawmort", replace
+file /Users/Stata/temp/rawmort.dta saved
+
+. 
+. /****************************************************/
+. /* 2. Prepare bounds estimates from bounds dataset  */
+. /****************************************************/
+. import delimited "$mdata/int/bounds/mort_bounds_all.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(15 vars, 32,544 obs)
+
+. 
+. * Filter usable bounds only: monotonic spec, valid f2, rank by sex
+. keep if spec == "mon" & f2 < 1 & ranktype == "sex"
+(1,584 observations deleted)
+
+. 
+. * Drop unneeded variables
+. drop mu_s mu_t
+
+. 
+. * Rename for consistency with earlier code
+. rename target_name target
+
+. 
+. * Keep relevant variables and causes of interest (total and despair)
+. keep year sex race age edclass mu_lb mu_ub cause target
+
+. keep if inlist(cause, "t", "d")
+(15,120 observations deleted)
+
+. 
+. * Collapse to one observation per group-cause by averaging bounds
+. collapse (mean) mu_lb mu_ub, by(year sex race age edclass target cause)
+
+. 
+. * Reshape from long to wide on cause
+. reshape wide mu_lb mu_ub, i(year sex race age edclass target) j(cause) string
+(j = d t)
+
+Data                               Long   ->   Wide
+-----------------------------------------------------------------------------
+Number of observations           15,840   ->   7,920       
+Number of variables                   9   ->   10          
+j variable (2 values)             cause   ->   (dropped)
+xij variables:
+                                  mu_lb   ->   mu_lbd mu_lbt
+                                  mu_ub   ->   mu_ubd mu_ubt
+-----------------------------------------------------------------------------
+
+. 
+. * Rename reshaped variables for clarity
+. rename mu_lbd lbd
+
+. rename mu_ubd ubd
+
+. rename mu_lbt lbt
+
+. rename mu_ubt ubt
+
+. 
+. * Compute changes vs. 2000 baseline
+. foreach b in ub lb {
+  2.     gen ttmp_`b' = `b't if year == 2000
+  3.     gen dtmp_`b' = `b'd if year == 2000
+  4.     bys $group target: egen base_`b't = max(ttmp_`b')
+  5.     bys $group target: egen base_`b'd = max(dtmp_`b')
+  6. }
+(7,704 missing values generated)
+(7,704 missing values generated)
+(3,168 missing values generated)
+(3,168 missing values generated)
+(7,704 missing values generated)
+(7,704 missing values generated)
+(3,168 missing values generated)
+(3,168 missing values generated)
+
+. 
+. gen tchange_ub = ubt / base_lbt
+(3,168 missing values generated)
+
+. gen tchange_lb = lbt / base_ubt
+(3,168 missing values generated)
+
+. gen dchange_ub = ubd / base_lbd
+(3,168 missing values generated)
+
+. gen dchange_lb = lbd / base_ubd
+(3,168 missing values generated)
+
+. 
+. sort year
+
+. save "$tmp/bounds", replace
+file /Users/Stata/temp/bounds.dta saved
+
+. 
+. /****************************************************/
+. /* 3. Merge raw and bounds data for plotting        */
+. /****************************************************/
+. use "$tmp/bounds", clear
+
+. merge m:1 year sex race age edclass using "$tmp/rawmort", keep(match) nogen
+(variable year was int, now float to accommodate using data's values)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                             2,376  
+    -----------------------------------------
+
+. 
+. * Rescale from ratios to % change
+. foreach v in tmort_change tchange_lb tchange_ub {
+  2.     replace `v' = (`v' - 1) * 100
+  3. }
+(2,376 real changes made)
+(2,376 real changes made)
+(2,376 real changes made)
+
+. 
+. /****************************************************/
+. /* 4. Plot naive vs. bounded mortality comparisons  */
+. /*    Women only, Total cause, Edclass 3 and 4      */
+. /****************************************************/
+. foreach race in 5 {
+  2.   local cause t   // total mortality only
+  3.   foreach ed in 1 2 3 4 {
+  4.     local sex 2   // women only
+  5.     local sexlbl women
+  6. 
+.     if `race' == 5 local ylabel -25(25)50
+  7.     if inlist(`race', 1, 2) local ylabel -50(50)150
+  8. 
+.     local age = 50
+  9.     local target = "10-45-70"   // adjust if using group-specific targets
+ 10.     local gname naive_`race'_`sexlbl'_`age'_`cause'_`ed'
+ 11. 
+.     twoway ///
+>       (scatter `cause'mort_change year if target == "`target'" & race == `race' & 
+> sex == `sex' & edclass == `ed' & age == `age', msize(medlarge)) ///
+>       (rcap `cause'change_lb `cause'change_ub year if target == "`target'" & race 
+> == `race' & sex == `sex' & edclass == `ed' & age == `age', lwidth(thick)) ///
+>       , name(`gname', replace) ///
+>         ylabel(`ylabel', labsize(large)) ///
+>         xlabel(, labsize(large)) ///
+>         legend(size(large) ring(0) pos(11) lab(1 "Unadjusted") lab(2 "Constant Ran
+> k")) ///
+>         xtitle("Year", size(large)) ///
+>         ytitle("% Mortality Change", size(large)) ///
+>         yline(0, lpattern(dash) lcolor(gs8))
+ 12. 
+.     graph export "$out/naive-`race'-`sexlbl'-`age'-`cause'-`ed'.pdf", replace name
+> (`gname')
+ 13.   }
+ 14. }
+file /Users/Stata/out/naive-5-women-50-t-1.pdf saved as PDF format
+file /Users/Stata/out/naive-5-women-50-t-2.pdf saved as PDF format
+file /Users/Stata/out/naive-5-women-50-t-3.pdf saved as PDF format
+file /Users/Stata/out/naive-5-women-50-t-4.pdf saved as PDF format
+
+. 
+end of do-file
+
+. 
+. /* intuitive graphs explaining how bounds work */
+. // shell python $mcode/a/graph_intuitive.py
+. 
+. /* CEF graphs walking through method */
+. // do $mcode/a/plot_mort_cef.do
+. 
+. /* table 2 showing mortality stats under different assumptions */
+. // do $mcode/a/table_mort_stats
+. 
+. /* APPENDIX FIGURES */
+. // do $mcode/a/forecast_pop_change_all_cohorts.do
+. // do $mcode/a/polynomial_cbar.do
+. // do $mcode/a/graph_hisp_group_size.do
+. // do $mcode/a/graph_income_ranks.do
+. // do $mcode/a/graph_mort_hisp_sim.do
+. // do $mcode/a/graph_nhis_mortality.do 
+. // do $mcode/a/graph_nhis_self_reported_health.do
+. 
+. /* latex inserts */
+. // do $mcode/a/export_tex_inserts.do
+. 
+end of do-file
+
+. 
+end of do-file
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. /*************************/
+. /* PROCESS SOLVER OUTPUT */
+. /*************************/
+. 
+. /* append parallel matlab bounds into a single file */
+. // do $mcode/b/append_parallel_matlab_bounds.do
+. 
+. /*********************************************************************************
+> ****/
+. /* NOTE: EVERYTHING ABOVE HERE SAVES BOUNDS TO mdata/int/bounds                   
+>           */
+. /*       EVERYTHING BELOW HERE LOADS BOUNDS FROM mdata/bounds                     
+>           */
+. /*                                                                                
+>    */
+. /* This is because we supply mdata/bounds/ as a basis for replication, and the pri
+> or */
+. /* stuff is only there to verify that the bounds are produced correctly.
+> 
+>    However, some intermediate files below continue to be saved to int/ */
+. 
+. /*********************************************************************************
+> ****/
+. 
+. /* take the matlab output CSV and reshape to a directly graphable dataset */
+. // do $mcode/b/process_matlab_bounds.do
+. 
+. /*******************************/
+. /* GENERATE TABLES AND FIGURES */
+. /*******************************/
+. 
+. // cap erase $out/mort_paper_stats.csv
+. 
+. /* main figures */
+. print("test")
+varlist not allowed
+r(101);
+
+end of do-file
+
+r(101);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+(file /Users/Stata/temp/mort_clean_nchs_smooth.dta not found)
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist a h c t d 
+
+. global agelist 25(5)65
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+age_gp not found
+r(111);
+
+end of do-file
+
+r(111);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist a h c t d 
+
+. global agelist 25(5)65
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-a-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-a-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. 
+. 
+. 
+. 
+. 
+. graph save "s1_r2" "/Users/Stata/a/s1_r2.gph"
+file /Users/Stata/a/s1_r2.gph saved
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. /*==============================*
+>   STEP 1: Load and process data
+> *==============================*/
+. 
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*==============================*
+>   STEP 2: Define plotting program
+> *==============================*/
+. 
+. capture program drop mortality_ed_fig
+
+. program define mortality_ed_fig
+  1.     syntax, sex(int) age(int) cause(string) race(string) [ylabel(passthru) name
+> (string) title(string) presentation ]
+  2. 
+.     if "`presentation'" != "" {
+  3.       local paneloff = "paneloff"
+  4.       local labsize = "medium"
+  5.     }
+  6. 
+.     if mi("`name'") {
+  7.         local name cdmort`cause'_`sex'_`racet`race''_`age'
+  8.     }
+  9. 
+.     preserve
+ 10. 
+.     qui keep if age == `age'
+ 11. 
+.     if "`cause'" == "t" & mi("`ylabel'") {
+ 12.         qui sum `cause'mortrate if edclass == 1 & race == 2 & sex == 1
+ 13.         local ymax = floor(`r(max)' / 1000) * 1000 + 1000
+ 14.         local yhalf = `ymax' / 4
+ 15.         local ylabel ylabel(0(`yhalf')`ymax')
+ 16.     }
+ 17. 
+.     forval ed = 1/4 {
+ 18.       qui sum `cause'mortrate if edclass == `ed' & race == `race' & sex == `sex
+> ' & year == 2020
+ 19.       local text_y`ed' = `r(mean)' + 200
+ 20. 
+.       qui sum ed_rank_sex if edclass == `ed' & race == `race' & sex == `sex' & yea
+> r == 2020
+ 21.       local text_x`ed' = `r(mean)' - 1
+ 22.     }
+ 23. 
+.     if `race' == 2 {
+ 24.       forval ed = 1/4 { 
+ 25.         qui sum `cause'mortrate if edclass == `ed' & race == `race' & sex == `s
+> ex' & year == 2000
+ 26.         local text_y`ed' = `r(mean)' + 200
+ 27. 
+.         qui sum ed_rank_sex if edclass == `ed' & race == `race' & sex == `sex' & y
+> ear == 2000
+ 28.         local text_x`ed' = `r(mean)' - 1
+ 29.       }
+ 30.     }
+ 31. 
+.     local t0 "All Genders" 
+ 32.     local t1 "Male"
+ 33.     local t2 "Female"
+ 34. 
+.     if "`presentation'" != "" {
+ 35.       local t1 "Men"
+ 36.       local t2 "Women"
+ 37.     }
+ 38. 
+.     local age_plus_4 = `age' + 4
+ 39.     local tt Total Mortality
+ 40.     local racet1 White
+ 41.     local racet2 Black
+ 42.     local panel1 "Panel A: "
+ 43.     local panel2 "Panel B: "
+ 44.     local panel3 "Panel C: "
+ 45.     local panel4 "Panel D: "
+ 46.     if "`paneloff'" != "" {
+ 47.       local panel1 ""
+ 48.       local panel2 ""
+ 49.       local panel3 ""
+ 50.       local panel4 "" 
+ 51.     }
+ 52. 
+.     if mi("`title'") {
+ 53.       local title title(`"``cause't' for Age `age'-`age_plus_4'"')
+ 54.     }
+ 55. 
+.     local panel_num = (3 - `sex') + (`race'-1) * 2
+ 56.     if `race' != 0 & `sex' != 0 local panel `panel`panel_num''
+ 57. 
+.     local legend
+ 58.     local order 
+ 59.     forval y = 2000(2)2020 {
+ 60.       local yp2 = `y' + 1
+ 61.       local index = (`y' - 2000) / 2 + 5
+ 62.       local order `order' `index'
+ 63.       local legend `legend' lab(`index' `y'-`yp2')
+ 64.     }
+ 65. 
+.     local legend legend(`legend' pos(2) ring(0) order(`order') rowgap(0.4) region(
+> lcolor(gs8)) cols(1) size(`legendsize'))
+ 66. 
+.     local lcolor 100 100 100
+ 67.     local subtitle "`panel' `racet`race'', `t`sex''" 
+ 68.     if "`presentation'" != "" {
+ 69.       local subtitle "Mortality Among `racet`race'' `t`sex''"
+ 70.     }
+ 71. 
+.     sort year
+ 72.     line `cause'mortrate    ed_rank_sex if edclass == 1, lcolor("`lcolor'") || 
+> ///
+>     line `cause'mortrate    ed_rank_sex if edclass == 2, lcolor("`lcolor'") || ///
+>     line `cause'mortrate    ed_rank_sex if edclass == 3, lcolor("`lcolor'") || ///
+>     line `cause'mortrate    ed_rank_sex if edclass == 4, lcolor("`lcolor'") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2000, msize(vlarge) mcolor("0 0
+>  0") msymbol(Th) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2002, msize(medium) mcolor("60 
+> 0 0") msymbol(+) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2004, msize(medium) mcolor("120
+>  0 0") msymbol(+) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2006, msize(medium) mcolor("180
+>  0 0") msymbol(+) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2008, msize(medium) mcolor("240
+>  0 0") msymbol(+) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2010, msize(medium) mcolor("255
+>  40 0") msymbol(+) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2012, msize(medium) mcolor("255
+>  100 0") msymbol(+) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2014, msize(medium) mcolor("255
+>  180 0") msymbol(+) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2016, msize(medium) mcolor("255
+>  220 0") msymbol(+) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2018, msize(medium) mcolor("255
+>  240 0") msymbol(s) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2020, msize(vlarge) mcolor("255
+>  255 0") mlcolor(black) msymbol(s) ///
+>     xtitle("Mean Education Percentile", size(medlarge)) ytitle("Deaths per 100,000
+> ", size(medlarge)) subtitle("`subtitle'", size(large) ring(0) position(12)) ///
+>     xlabel(0(25)100, labsize(large))  `ylabel' `ytick' `title' ///
+>     name(`name', replace) graphregion(color(white)) ylabel(,labsize(large)) `legen
+> d' ///
+>     text(`text_y1' `text_x1' "No High School", placement(e) size(medlarge)) ///
+>     text(`text_y2' `text_x2' "High School", placement(e) size(medlarge)) ///
+>     text(`text_y3' `text_x3' "Some College", placement(e) size(medlarge)) ///
+>     text(`text_y4' `text_x4' "B.A.+", placement(e) size(medlarge)) xtitle(,size(la
+> rge)) ytitle(,size(large)) title(,size(vlarge))
+ 73. 
+.     restore
+ 74. end
+
+. 
+. /*==============================*
+>   STEP 3: Set labels
+> *==============================*/
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /*==============================*
+>   STEP 4: Generate the 4 panels
+> *==============================*/
+. 
+. mortality_ed_fig, sex(2) age(50) cause(t) race(1) name(panelA, replace)
+invalid 'replace' 
+r(198);
+
+end of do-file
+
+r(198);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist a h c t d 
+
+. global agelist 25(5)65
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-a-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-a-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. mortality_ed_fig, sex(2) age(50) cause(t) race(1) name(panelA, replace)
+invalid 'replace' 
+r(198);
+
+end of do-file
+
+r(198);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. /* generate presentation and regular graphs */
+. global causelist t 
+
+. global agelist 50
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. 
+. 
+. 
+. 
+. 
+. 
+. 
+. 
+. 
+. 
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist a h c t d 
+
+. global agelist 25(5)65
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-a-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-d-65-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-a-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-a-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-h-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-c-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-d-65-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. capture program drop mortality_ed_fig
+
+. program define mortality_ed_fig
+  1.     syntax, sex(int) age(int) cause(string) race(string) [ylabel(passthru) name
+> (string) title(string) presentation ]
+  2. 
+.     if mi("`name'") {
+  3.         local name cdmort`cause'_`sex'_`racet`race''_`age'
+  4.     }
+  5. 
+.     preserve
+  6. 
+.     qui keep if age == `age' & sex == `sex' & race == `race'
+  7. 
+.     if "`cause'" == "t" & mi("`ylabel'") {
+  8.         qui sum `cause'mortrate if edclass == 1 & race == 2 & sex == 1
+  9.         local ymax = floor(`r(max)' / 1000) * 1000 + 1000
+ 10.         local yhalf = `ymax' / 4
+ 11.         local ylabel ylabel(0(`yhalf')`ymax')
+ 12.     }
+ 13. 
+.     local t0 "All Genders"
+ 14.     local t1 "Male"
+ 15.     local t2 "Female"
+ 16.     local racet1 White
+ 17.     local racet2 Black
+ 18.     local panel1 "Panel A: "
+ 19.     local panel2 "Panel B: "
+ 20.     local panel3 "Panel C: "
+ 21.     local panel4 "Panel D: "
+ 22. 
+.     local panel_num = (3 - `sex') + (`race'-1) * 2
+ 23.     if `race' != 0 & `sex' != 0 local panel `panel`panel_num''
+ 24. 
+.     local subtitle "`panel' `racet`race'', `t`sex''"
+ 25.     local title title("")
+ 26. 
+.     * Build the custom legend for time bins
+.     local legend_order
+ 27.     local legend_labels
+ 28.     local color_index = 1
+ 29. 
+.     forval y = 2000(2)2020 {
+ 30.         local yp1 = `y' + 1
+ 31.         local idx = `color_index'
+ 32.         local legend_order `legend_order' `idx'
+ 33.         local legend_labels `legend_labels' label(`idx' "`y'–`yp1'")
+ 34.         local ++color_index
+ 35.     }
+ 36. 
+.     local legend legend(order(`legend_order') `legend_labels' ///
+>         col(3) ring(0) pos(6) size(medsmall) rowgap(0.4) region(lcolor(white)))
+ 37. 
+.     sort year
+ 38. 
+.     line `cause'mortrate ed_rank_sex if edclass == 1, lcolor(gs6) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 2, lcolor(gs8) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 3, lcolor(gs10) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 4, lcolor(black) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2000,  msymbol(circle) mcolor("
+> 0 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2002,  msymbol(circle) mcolor("
+> 60 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2004,  msymbol(circle) mcolor("
+> 120 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2006,  msymbol(circle) mcolor("
+> 180 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2008,  msymbol(circle) mcolor("
+> 240 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2010,  msymbol(circle) mcolor("
+> 255 40 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2012,  msymbol(circle) mcolor("
+> 255 100 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2014,  msymbol(circle) mcolor("
+> 255 180 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2016,  msymbol(circle) mcolor("
+> 255 220 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2018,  msymbol(circle) mcolor("
+> 255 240 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2020,  msymbol(circle) mcolor("
+> 255 255 0") ///
+>     , ///
+>     xtitle("Mean Education Percentile", size(medlarge)) ///
+>     ytitle("Deaths per 100,000", size(medlarge)) ///
+>     subtitle("`subtitle'", size(large)) ///
+>     `ylabel' `title' name(`name', replace) ///
+>     graphregion(color(white)) `legend'
+ 39. 
+.     restore
+ 40. end
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t
+
+. global agelist 50
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+_b not allowed when e(b) is not present
+r(111);
+
+end of do-file
+
+r(111);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. capture program drop mortality_ed_fig
+
+. program define mortality_ed_fig
+  1.     syntax, sex(int) age(int) cause(string) race(string) [ylabel(passthru) name
+> (string) title(string) presentation ]
+  2. 
+.     if mi("`name'") {
+  3.         local name cdmort`cause'_`sex'_`racet`race''_`age'
+  4.     }
+  5. 
+.     preserve
+  6. 
+.     qui keep if age == `age' & sex == `sex' & race == `race'
+  7. 
+.     if "`cause'" == "t" & mi("`ylabel'") {
+  8.         qui sum `cause'mortrate if edclass == 1 & race == 2 & sex == 1
+  9.         local ymax = floor(`r(max)' / 1000) * 1000 + 1000
+ 10.         local yhalf = `ymax' / 4
+ 11.         local ylabel ylabel(0(`yhalf')`ymax')
+ 12.     }
+ 13. 
+.     local t0 "All Genders"
+ 14.     local t1 "Male"
+ 15.     local t2 "Female"
+ 16.     local racet1 White
+ 17.     local racet2 Black
+ 18.     local panel1 "Panel A: "
+ 19.     local panel2 "Panel B: "
+ 20.     local panel3 "Panel C: "
+ 21.     local panel4 "Panel D: "
+ 22. 
+.     local panel_num = (3 - `sex') + (`race'-1) * 2
+ 23.     if `race' != 0 & `sex' != 0 local panel `panel`panel_num''
+ 24. 
+.     local subtitle "`panel' `racet`race'', `t`sex''"
+ 25.     local title title("")
+ 26. 
+.     * Build the custom legend for time bins
+.     local legend_order
+ 27.     local legend_labels
+ 28.     local color_index = 1
+ 29. 
+.     forval y = 2000(2)2020 {
+ 30.         local yp1 = `y' + 1
+ 31.         local idx = `color_index'
+ 32.         local legend_order `legend_order' `idx'
+ 33.         local legend_labels `legend_labels' label(`idx' "`y'–`yp1'")
+ 34.         local ++color_index
+ 35.     }
+ 36. 
+.     local legend legend(order(`legend_order') `legend_labels' ///
+>         col(3) ring(0) pos(6) size(medsmall) rowgap(0.4) region(lcolor(white)))
+ 37. 
+.     sort year
+ 38. 
+.     line `cause'mortrate ed_rank_sex if edclass == 1, lcolor(gs6) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 2, lcolor(gs8) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 3, lcolor(gs10) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 4, lcolor(black) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2000,  msymbol(circle) mcolor("
+> 0 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2002,  msymbol(circle) mcolor("
+> 60 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2004,  msymbol(circle) mcolor("
+> 120 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2006,  msymbol(circle) mcolor("
+> 180 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2008,  msymbol(circle) mcolor("
+> 240 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2010,  msymbol(circle) mcolor("
+> 255 40 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2012,  msymbol(circle) mcolor("
+> 255 100 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2014,  msymbol(circle) mcolor("
+> 255 180 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2016,  msymbol(circle) mcolor("
+> 255 220 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2018,  msymbol(circle) mcolor("
+> 255 240 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2020,  msymbol(circle) mcolor("
+> 255 255 0") ///
+>     , ///
+>     xtitle("Mean Education Percentile", size(medlarge)) ///
+>     ytitle("Deaths per 100,000", size(medlarge)) ///
+>     subtitle("`subtitle'", size(large)) ///
+>     `ylabel' `title' name(`name', replace) ///
+>     graphregion(color(white)) `legend'
+ 39. 
+.     restore
+ 40. end
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t
+
+. global agelist 50(5)55
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+_b not allowed when e(b) is not present
+r(111);
+
+end of do-file
+
+r(111);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. capture program drop mortality_ed_fig
+
+. program define mortality_ed_fig
+  1.     syntax, sex(int) age(int) cause(string) race(string) [ylabel(passthru) name
+> (string) title(string) presentation ]
+  2. 
+.     if mi("`name'") {
+  3.         local name cdmort`cause'_`sex'_`racet`race''_`age'
+  4.     }
+  5. 
+.     preserve
+  6. 
+.     qui keep if age == `age' & sex == `sex' & race == `race'
+  7. 
+.     if "`cause'" == "t" & mi("`ylabel'") {
+  8.         qui sum `cause'mortrate if edclass == 1 & race == 2 & sex == 1
+  9.         local ymax = floor(`r(max)' / 1000) * 1000 + 1000
+ 10.         local yhalf = `ymax' / 4
+ 11.         local ylabel ylabel(0(`yhalf')`ymax')
+ 12.     }
+ 13. 
+.     local t0 "All Genders"
+ 14.     local t1 "Male"
+ 15.     local t2 "Female"
+ 16.     local racet1 White
+ 17.     local racet2 Black
+ 18.     local panel1 "Panel A: "
+ 19.     local panel2 "Panel B: "
+ 20.     local panel3 "Panel C: "
+ 21.     local panel4 "Panel D: "
+ 22. 
+.     local panel_num = (3 - `sex') + (`race'-1) * 2
+ 23.     if `race' != 0 & `sex' != 0 local panel `panel`panel_num''
+ 24. 
+.     local subtitle "`panel' `racet`race'', `t`sex''"
+ 25.     local title title("")
+ 26. 
+.     * Build the custom legend for time bins
+.     local legend_order
+ 27.     local legend_labels
+ 28.     local color_index = 1
+ 29. 
+.     forval y = 2000(2)2020 {
+ 30.         local yp1 = `y' + 1
+ 31.         local idx = `color_index'
+ 32.         local legend_order `legend_order' `idx'
+ 33.         local legend_labels `legend_labels' label(`idx' "`y'–`yp1'")
+ 34.         local ++color_index
+ 35.     }
+ 36. 
+.     local legend legend(order(`legend_order') `legend_labels' ///
+>         col(3) ring(0) pos(6) size(medsmall) rowgap(0.4) region(lcolor(white)))
+ 37. 
+.     sort year
+ 38. 
+.     line `cause'mortrate ed_rank_sex if edclass == 1, lcolor(gs6) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 2, lcolor(gs8) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 3, lcolor(gs10) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 4, lcolor(black) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2000,  msymbol(circle) mcolor("
+> 0 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2002,  msymbol(circle) mcolor("
+> 60 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2004,  msymbol(circle) mcolor("
+> 120 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2006,  msymbol(circle) mcolor("
+> 180 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2008,  msymbol(circle) mcolor("
+> 240 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2010,  msymbol(circle) mcolor("
+> 255 40 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2012,  msymbol(circle) mcolor("
+> 255 100 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2014,  msymbol(circle) mcolor("
+> 255 180 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2016,  msymbol(circle) mcolor("
+> 255 220 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2018,  msymbol(circle) mcolor("
+> 255 240 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2020,  msymbol(circle) mcolor("
+> 255 255 0") ///
+>     , ///
+>     xtitle("Mean Education Percentile", size(medlarge)) ///
+>     ytitle("Deaths per 100,000", size(medlarge)) ///
+>     subtitle("`subtitle'", size(large)) ///
+>     `ylabel' `title' name(`name', replace) ///
+>     graphregion(color(white)) `legend'
+ 39. 
+.     restore
+ 40. end
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t
+
+. global agelist 25(5)65
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+_b not allowed when e(b) is not present
+r(111);
+
+end of do-file
+
+r(111);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. capture program drop mortality_ed_fig
+
+. program define mortality_ed_fig
+  1.     syntax, sex(int) age(int) cause(string) race(string) [ylabel(passthru) name
+> (string) title(string) presentation ]
+  2. 
+.     if mi("`name'") {
+  3.         local name cdmort`cause'_`sex'_`racet`race''_`age'
+  4.     }
+  5. 
+.     preserve
+  6. 
+.     qui keep if age == `age' & sex == `sex' & race == `race'
+  7. 
+.     if "`cause'" == "t" & mi("`ylabel'") {
+  8.         qui sum `cause'mortrate if edclass == 1 & race == 2 & sex == 1
+  9.         local ymax = floor(`r(max)' / 1000) * 1000 + 1000
+ 10.         local yhalf = `ymax' / 4
+ 11.         local ylabel ylabel(0(`yhalf')`ymax')
+ 12.     }
+ 13. 
+.     local t0 "All Genders"
+ 14.     local t1 "Male"
+ 15.     local t2 "Female"
+ 16.     local racet1 White
+ 17.     local racet2 Black
+ 18.     local panel1 "Panel A: "
+ 19.     local panel2 "Panel B: "
+ 20.     local panel3 "Panel C: "
+ 21.     local panel4 "Panel D: "
+ 22. 
+.     local panel_num = (3 - `sex') + (`race'-1) * 2
+ 23.     if `race' != 0 & `sex' != 0 local panel `panel`panel_num''
+ 24. 
+.     local subtitle "`panel' `racet`race'', `t`sex''"
+ 25.     local title title("")
+ 26. 
+.     * Build the custom legend for time bins
+.     local legend_order
+ 27.     local legend_labels
+ 28.     local color_index = 1
+ 29. 
+.     forval y = 2000(2)2020 {
+ 30.         local yp1 = `y' + 1
+ 31.         local idx = `color_index'
+ 32.         local legend_order `legend_order' `idx'
+ 33.         local legend_labels `legend_labels' label(`idx' "`y'–`yp1'")
+ 34.         local ++color_index
+ 35.     }
+ 36. 
+.     local legend legend(order(`legend_order') `legend_labels' ///
+>         col(3) ring(0) pos(6) size(medsmall) rowgap(0.4) region(lcolor(white)))
+ 37. 
+.     sort year
+ 38. 
+.     line `cause'mortrate ed_rank_sex if edclass == 1, lcolor(gs6) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 2, lcolor(gs8) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 3, lcolor(gs10) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 4, lcolor(black) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2000,  msymbol(circle) mcolor("
+> 0 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2002,  msymbol(circle) mcolor("
+> 60 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2004,  msymbol(circle) mcolor("
+> 120 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2006,  msymbol(circle) mcolor("
+> 180 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2008,  msymbol(circle) mcolor("
+> 240 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2010,  msymbol(circle) mcolor("
+> 255 40 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2012,  msymbol(circle) mcolor("
+> 255 100 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2014,  msymbol(circle) mcolor("
+> 255 180 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2016,  msymbol(circle) mcolor("
+> 255 220 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2018,  msymbol(circle) mcolor("
+> 255 240 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2020,  msymbol(circle) mcolor("
+> 255 255 0") ///
+>     , ///
+>     xtitle("Mean Education Percentile", size(medlarge)) ///
+>     ytitle("Deaths per 100,000", size(medlarge)) ///
+>     subtitle("`subtitle'", size(large)) ///
+>     `ylabel' `title' name(`name', replace) ///
+>     graphregion(color(white)) `legend'
+ 39. 
+.     restore
+ 40. end
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist a h c t d 
+
+. global agelist 25(5)65
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-a-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-a-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-h-65-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-25-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-30-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-35-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-40-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-45-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-55-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-60-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-c-65-2-2.pdf saved as PDF format
+_b not allowed when e(b) is not present
+r(111);
+
+end of do-file
+
+r(111);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t 
+
+. global agelist 50(5)55
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-55-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-55-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. /* generate presentation and regular graphs */
+. global causelist t 
+
+. global agelist 50(5)50
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. graph export "/Users/Stata/out/s2_r2.png", as(png) name("s2_r2")
+file /Users/Stata/out/s2_r2.png saved as PNG format
+
+. 
+. 
+. 
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t 
+
+. global agelist 50(5)50
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. 
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t 
+
+. global agelist 50(5)50
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t 
+
+. global agelist 50(5)50
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. graph save "s2_r2" "/Users/Stata/out/s2_r2.gph"
+file /Users/Stata/out/s2_r2.gph saved
+
+. graph save "s1_r2" "/Users/Stata/out/s1_r2.gph"
+file /Users/Stata/out/s1_r2.gph saved
+
+. graph save "s2_r1" "/Users/Stata/out/s2_r1.gph"
+file /Users/Stata/out/s2_r1.gph saved
+
+. graph save "s1_r1" "/Users/Stata/out/s1_r1.gph"
+file /Users/Stata/out/s1_r1.gph saved
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. * Set the working directory where the GPH files are saved
+. cd "/Users/Stata/out"
+/Users/Stata/out
+
+. 
+. * Load each graph and assign a display name for combination
+. graph use s2_r1.gph, name(panelA, replace)   // White Female
+
+. graph use s1_r1.gph, name(panelB, replace)   // White Male
+
+. graph use s2_r2.gph, name(panelC, replace)   // Black Female
+
+. graph use s1_r2.gph, name(panelD, replace)   // Black Male
+
+. 
+. * Combine into 2x2 layout
+. graph combine panelA panelB panelC panelD, ///
+>     col(2) ///
+>     graphregion(color(white)) ///
+>     imargin(0 0 0 0) ///
+>     title("Mortality by Education Rank, Age 50", size(medium)) ///
+>     name(combined_panel, replace)
+
+. 
+. * Save the combined graph
+. graph save combined_panel.gph, replace
+(file combined_panel.gph not found)
+file combined_panel.gph saved
+
+. 
+. * Export to PDF and PNG
+. graph export combined_panel.pdf, replace
+file /Users/Stata/out/combined_panel.pdf saved as PDF format
+
+. graph export combined_panel.png, width(2000) replace
+file /Users/Stata/out/combined_panel.png saved as PNG format
+
+. 
+end of do-file
+
+. 
+. 
+. 
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. cd "/Users/Stata/out"
+/Users/Stata/out
+
+. 
+. * Load individual graphs and give consistent names
+. graph use s2_r1.gph, name(panelA, replace)   // White Female
+
+. graph use s1_r1.gph, name(panelB, replace)   // White Male
+
+. graph use s2_r2.gph, name(panelC, replace)   // Black Female
+
+. graph use s1_r2.gph, name(panelD, replace)   // Black Male
+
+. 
+. * Combine into 2x2 grid with subtitles and shared legend
+. graph combine panelA panelB panelC panelD, ///
+>     col(2) imargin(0 0 0 0) ///
+>     graphregion(color(white)) ///
+>     subtitle("White Women", size(medsmall) position(11) just(left)) ///
+>     subtitle("White Men", size(medsmall) position(11) just(left)) ///
+>     subtitle("Black Women", size(medsmall) position(11) just(left)) ///
+>     subtitle("Black Men", size(medsmall) position(11) just(left)) ///
+>     ycommon xcommon ///
+>     legend(position(6) ring(1) col(3) size(small) region(lcolor(white))) ///
+>     ylab(500(500)3000, grid glcolor(gs10)) ///
+>     xlab(0(25)100)
+option legend() not allowed
+r(198);
+
+end of do-file
+
+r(198);
+
+. graph save "panelA" "/Users/Stata/out/s2_r1.gph", replace
+file /Users/Stata/out/s2_r1.gph saved
+
+. graph save "panelA" "/Users/Stata/out/s2_r1.gph", replace
+file /Users/Stata/out/s2_r1.gph saved
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. * Set the working directory where the GPH files are saved
+. cd "/Users/Stata/out"
+/Users/Stata/out
+
+. 
+. * Load each graph and assign a display name for combination
+. graph use s2_r1.gph, name(panelA, replace)   // White Female
+
+. graph use s1_r1.gph, name(panelB, replace)   // White Male
+
+. graph use s2_r2.gph, name(panelC, replace)   // Black Female
+
+. graph use s1_r2.gph, name(panelD, replace)   // Black Male
+
+. 
+. * Combine into 2x2 layout
+. graph combine panelA panelB panelC panelD, ///
+>     col(2) ///
+>     graphregion(color(white)) ///
+>     imargin(0 0 0 0) ///
+>     title("Mortality by Education Rank, Age 50", size(medium)) ///
+>     name(combined_panel, replace)
+
+. 
+. * Save the combined graph
+. graph save combined_panel.gph, replace
+(file combined_panel.gph not found)
+file combined_panel.gph saved
+
+. 
+. * Export to PDF and PNG
+. graph export combined_panel.pdf, replace
+file /Users/Stata/out/combined_panel.pdf saved as PDF format
+
+. graph export combined_panel.png, width(2000) replace
+file /Users/Stata/out/combined_panel.png saved as PNG format
+
+. 
+end of do-file
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. * Set the working directory where the GPH files are saved
+. cd "/Users/Stata/out"
+/Users/Stata/out
+
+. 
+. * Load each graph and assign a display name for combination
+. graph use s2_r1.gph, name(panelA, replace)   // White Female
+
+. graph use s1_r1.gph, name(panelB, replace)   // White Male
+
+. graph use s2_r2.gph, name(panelC, replace)   // Black Female
+
+. graph use s1_r2.gph, name(panelD, replace)   // Black Male
+
+. 
+. * Combine into 2x2 layout with custom settings
+. graph combine panelA panelB panelC panelD, ///
+>     col(2) ///
+>     graphregion(color(white)) ///
+>     imargin(0 0 0 0) ///
+>     title("Mortality by Education Rank, Age 50", size(medium)) ///
+>     subtitle(, size(medium)) ///
+>     note(, size(medium)) ///
+>     ycommon xcommon ///
+>     ylab(1000 2000 3000, grid glcolor(gs10) angle(horizontal)) ///
+>     name(combined_panel, replace)
+option ylab() not allowed
+r(198);
+
+end of do-file
+
+r(198);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. * Set the working directory where the GPH files are saved
+. cd "/Users/Stata/out"
+/Users/Stata/out
+
+. 
+. * Load each graph and assign a display name for combination
+. graph use s2_r1.gph, name(panelA, replace)   // White Female
+
+. graph use s1_r1.gph, name(panelB, replace)   // White Male
+
+. graph use s2_r2.gph, name(panelC, replace)   // Black Female
+
+. graph use s1_r2.gph, name(panelD, replace)   // Black Male
+
+. 
+. * Combine into 2x2 layout with custom settings
+. graph combine panelA panelB panelC panelD, ///
+>     col(2) ///
+>     graphregion(color(white)) ///
+>     imargin(0 0 0 0) ///
+>     title("Mortality by Education Rank, Age 50", size(medium)) ///
+>     subtitle(, size(medium)) ///
+>     note(, size(medium)) ///
+>     ycommon xcommon ///
+>     name(combined_panel, replace)
+
+. 
+. * Save the combined graph
+. graph save combined_panel.gph, replace
+(file combined_panel.gph not found)
+file combined_panel.gph saved
+
+. 
+. * Export to PDF and PNG
+. graph export combined_panel.pdf, replace
+file /Users/Stata/out/combined_panel.pdf saved as PDF format
+
+. graph export combined_panel.png, width(2000) replace
+file /Users/Stata/out/combined_panel.png saved as PNG format
+
+. 
+end of do-file
+
+. 
+. 
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. cd "/Users/Stata/out"
+/Users/Stata/out
+
+. 
+. * --------------------------------------
+. * Format Panel A (White Female) - KEEP legend
+. * --------------------------------------
+. graph use s2_r1.gph, name(panelA, replace)
+
+. graph rename panelA formattedA
+
+. graph display, ylab(1000 2000 3000, grid glcolor(gs10) angle(horizontal)) ///
+>     ylabel(, labsize(medium)) xlabel(, labsize(medium)) ///
+>     title(, size(medium)) subtitle(, size(medium)) ///
+>     note(, size(medium)) ///
+>     legend(position(6) ring(1) col(3) size(medium) region(lcolor(white))) ///
+>     name(formattedA, replace)
+option ylab() not allowed
+r(198);
+
+end of do-file
+
+r(198);
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. program define mortality_ed_fig
+  1.     syntax, sex(int) age(int) cause(string) race(string) [ylabel(passthru) name
+> (string) title(string) presentation ]
+  2. 
+.     if mi("`name'") {
+  3.         local name cdmort`cause'_`sex'_`racet`race''_`age'
+  4.     }
+  5. 
+.     preserve
+  6.     qui keep if age == `age' & sex == `sex' & race == `race'
+  7. 
+.     * Automatic Y-axis scaling fallback (only used if ylabel not provided)
+.     if "`cause'" == "t" & mi("`ylabel'") {
+  8.         qui sum `cause'mortrate if edclass == 1
+  9.         local ymax = floor(`r(max)' / 1000) * 1000 + 1000
+ 10.         local yhalf = `ymax' / 4
+ 11.         local ylabel ylabel(0(`yhalf')`ymax')
+ 12.     }
+ 13. 
+.     * Labels
+.     local t0 "All Genders"
+ 14.     local t1 "Male"
+ 15.     local t2 "Female"
+ 16.     local racet1 White
+ 17.     local racet2 Black
+ 18.     local panel1 "Panel A: "
+ 19.     local panel2 "Panel B: "
+ 20.     local panel3 "Panel C: "
+ 21.     local panel4 "Panel D: "
+ 22. 
+.     local panel_num = (3 - `sex') + (`race'-1) * 2
+ 23.     local panel `panel`panel_num''
+ 24. 
+.     local subtitle "`panel' `racet`race'', `t`sex''"
+ 25.     local title title("")
+ 26. 
+.     * Grid lines at fixed y-values
+.     local ylabel ylabel(1000 2000 3000, grid glcolor(gs10) angle(horizontal))
+ 27. 
+.     * Determine whether to include legend (only in panel A)
+.     local legendopt legend(off)
+ 28.     if `sex' == 2 & `race' == 1 {
+ 29.         local legendopt legend(position(6) ring(1) col(3) size(medium) region(l
+> color(white)))
+ 30.     }
+ 31. 
+.     sort year
+ 32.     line `cause'mortrate ed_rank_sex if edclass == 1, lcolor(gs6) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 2, lcolor(gs8) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 3, lcolor(gs10) || ///
+>     line `cause'mortrate ed_rank_sex if edclass == 4, lcolor(black) || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2000,  msymbol(circle) mcolor("
+> 0 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2002,  msymbol(circle) mcolor("
+> 60 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2004,  msymbol(circle) mcolor("
+> 120 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2006,  msymbol(circle) mcolor("
+> 180 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2008,  msymbol(circle) mcolor("
+> 240 0 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2010,  msymbol(circle) mcolor("
+> 255 40 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2012,  msymbol(circle) mcolor("
+> 255 100 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2014,  msymbol(circle) mcolor("
+> 255 180 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2016,  msymbol(circle) mcolor("
+> 255 220 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2018,  msymbol(circle) mcolor("
+> 255 240 0") || ///
+>     scatter `cause'mortrate ed_rank_sex if year == 2020,  msymbol(circle) mcolor("
+> 255 255 0") ///
+>     , ///
+>     xtitle("Mean Education Percentile", size(medium)) ///
+>     ytitle("Deaths per 100,000", size(medium)) ///
+>     xlabel(0(25)100, labsize(medium)) ///
+>     `ylabel' ///
+>     title(, size(medium)) ///
+>     subtitle("`subtitle'", size(medium) position(11) just(left)) ///
+>     note(, size(medium)) ///
+>     `legendopt' ///
+>     name(`name', replace) graphregion(color(white))
+ 33. 
+.     restore
+ 34. end
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t 
+
+. global agelist 50(5)50
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. import delimited "$mdata/mort/nchs/appended_rank_mort.csv", clear
+(encoding automatically selected: ISO-8859-2)
+(135 vars, 11,880 obs)
+
+. 
+. /* collapse to 2-year bins from 2000 to 2021 */
+. egen year_bin = cut(year), at(2000(2)2022)
+
+. collapse (mean) *mortrate ed_rank_sex tpop_rolling, by(race sex age edclass year_b
+> in)
+
+. ren year_bin year
+
+. 
+. save $tmp/mort_clean_nchs_smooth, replace
+file /Users/Stata/temp/mort_clean_nchs_smooth.dta saved
+
+. 
+. /*********************************************/
+. /* plot mortality over time against ed rank  */
+. /*********************************************/
+. capture program drop mortality_ed_fig
+
+. capture program define mortality_ed_fig
+
+. 
+. local racet1 white
+
+. local racet2 black
+
+. local racet3 hisp
+
+. local racet4 other
+
+. 
+. use $tmp/mort_clean_nchs_smooth, clear
+
+. 
+. /* generate presentation and regular graphs */
+. global causelist t 
+
+. global agelist 50(5)50
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ") presentation
+  6.         graphout presentation-scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/presentation-scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+. foreach cause in $causelist {
+  2.   foreach age of numlist $agelist {
+  3.     foreach race in 1 2 {
+  4.       foreach sex in 1 2 {
+  5.         mortality_ed_fig, sex(`sex') age(`age') cause(`cause') race(`race') nam
+> e(s`sex'_r`race') title(" ")
+  6.         graphout scatter-smooth-`cause'-`age'-`sex'-`race', pdf
+  7.       }
+  8.     }
+  9.   }
+ 10. }
+file /Users/Stata/out/scatter-smooth-t-50-1-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-1.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-1-2.pdf saved as PDF format
+file /Users/Stata/out/scatter-smooth-t-50-2-2.pdf saved as PDF format
+
+. 
+end of do-file
+
+. graph save "s2_r2" "/Users/Stata/out/s2_r2.gph"
+file /Users/Stata/out/s2_r2.gph saved
+
+. graph save "s1_r2" "/Users/Stata/out/s1_r2.gph"
+file /Users/Stata/out/s1_r2.gph saved
+
+. graph save "s2_r1" "/Users/Stata/out/s2_r1.gph"
+file /Users/Stata/out/s2_r1.gph saved
+
+. graph save "s1_r1" "/Users/Stata/out/s1_r1.gph"
+file /Users/Stata/out/s1_r1.gph saved
+
+. 
+. do "/var/folders/x8/hy8wllcj7pq8ybz0x_d1vvkh0000gn/T//SD00616.000000"
+
+. * Set the working directory where the GPH files are saved
+. cd "/Users/Stata/out"
+/Users/Stata/out
+
+. 
+. * Load each graph and assign a display name for combination
+. graph use s2_r1.gph, name(panelA, replace)   // White Female
+
+. graph use s1_r1.gph, name(panelB, replace)   // White Male
+
+. graph use s2_r2.gph, name(panelC, replace)   // Black Female
+
+. graph use s1_r2.gph, name(panelD, replace)   // Black Male
+
+. 
+. * Combine into 2x2 layout with custom settings
+. graph combine panelA panelB panelC panelD, ///
+>     col(2) ///
+>     graphregion(color(white)) ///
+>     imargin(0 0 0 0) ///
+>     title("Mortality by Education Rank, Age 50", size(medium)) ///
+>     subtitle(, size(medium)) ///
+>     note(, size(medium)) ///
+>     ycommon xcommon ///
+>     name(combined_panel, replace)
+
+. 
+. * Save the combined graph
+. graph save combined_panel.gph, replace
+(file combined_panel.gph not found)
+file combined_panel.gph saved
+
+. 
+. * Export to PDF and PNG
+. graph export combined_panel.pdf, replace
+file /Users/Stata/out/combined_panel.pdf saved as PDF format
+
+. graph export combined_panel.png, width(2000) replace
+file /Users/Stata/out/combined_panel.png saved as PNG format
+
+. 
+end of do-file
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph export "/Users/Stata/out/combined_introduction_panel.png", as(png) name("com
+> bined_panel")
+file /Users/Stata/out/combined_introduction_panel.png saved as PNG format
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph export "/Users/Stata/out/combined_introduction_panel.png", as(png) name("com
+> bined_panel") replace
+file /Users/Stata/out/combined_introduction_panel.png saved as PNG format
+
+. graph save "s2_r1" "/Users/Stata/out/s2_r1.gph", replace
+file /Users/Stata/out/s2_r1.gph saved
+
+. graph save "s2_r1" "/Users/Stata/out/s2_r1.gph", replace
+file /Users/Stata/out/s2_r1.gph saved
+
+. graph export "/Users/Stata/out/combined_introduction_panel.png", as(png) name("com
+> bined_panel") replace
+file /Users/Stata/out/combined_introduction_panel.png saved as PNG format
+
+. use "/Users/friso/Downloads/cps_march_inc_8018 (2).dta"
+(CEPR March Extract, Version 1.0, 1989)
+
+. use "/Users/Stata/SeminarHealthSociety/acs_files/output/Census extrapolation until
+>  2005/Output censes extrapolation until 2005/extrapolated_inst_pops_2000_2005.dta"
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. graph save "combined_panel" "/Users/Stata/out/combined_panel.gph", replace
+file /Users/Stata/out/combined_panel.gph saved
+
+. exit
+--Break--
+r(1);
+
+. exit
+--Break--
+r(1);
+
+. exit
