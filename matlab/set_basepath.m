@@ -1,0 +1,1 @@
+base_path = 'C:/Users/maud5/Documents/GitHub/paper-nra-mortality';
