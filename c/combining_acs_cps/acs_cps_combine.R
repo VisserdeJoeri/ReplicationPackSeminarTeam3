@@ -1,4 +1,4 @@
-# This dataset is for combining cps and acs dataset
+# This dataset is for combining cps (non_inst) and acs (inst) dataset 
 library(tidyverse)
 library(haven)
 library(readr)
@@ -18,7 +18,6 @@ acs_dataset <- old_acs_dataset %>%
   rename(race = wbho, age = age_gp) %>%  
   select(-inst_2000, -inst_2006) %>%     
   mutate(
-    # Convert numeric ages into age groups
     age = case_when(
       age == 25 ~ "25-29",
       age == 30 ~ "30-34",
@@ -33,13 +32,11 @@ acs_dataset <- old_acs_dataset %>%
       TRUE ~ as.character(age)
     )
   ) %>%
-  filter(age != "70-74", race != 0, sex != 0)  # filter out rows we don't need
+  filter(age != "70-74", race != 0, sex != 0)  
 
 # Step 2: Combine CPS with ACS
-# We rename and scale tpop_2 from CPS so it's in whole persons
-cps_dataset <- old_cps_dataset
 
-# Merge the two datasets based on shared keys
+# Merge the two datasets using the same groups
 combined_dataset <- left_join(
   cps_dataset,
   acs_dataset,
@@ -57,7 +54,7 @@ combined_dataset <- combined_dataset %>%
     )
   )
 
-# Grab the 2018 rates for reuse
+# Filtering the 2018 rates
 inst_rate_2018 <- combined_dataset %>%
   filter(year == 2018) %>%
   select(age, race, sex, edclass, inst_rate)
@@ -75,6 +72,6 @@ combined_dataset <- combined_dataset %>%
     # Calculate inst using the estimated inst_rate
     inst = if_else(year > 2018, inst_rate * non_inst / (1 - inst_rate), inst)
   ) %>%
-  select(-inst_rate_2018)  # remove helper column
+  select(-inst_rate_2018)
 
 write.csv(cps_dataset, output_file, row.names = FALSE)

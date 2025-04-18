@@ -1,7 +1,9 @@
+# This code creates the graph for the Robustness chapter
+
 library(dplyr)
 library(ggplot2)
 
-# Step 1: Create lagged inst_rate from year t-1, only for races 1 & 2
+# Create lagged inst_rate from year t-1, only for races 1 & 2
 lagged_rates <- combined_dataset %>%
   filter(year %in% 2000:2018, race %in% c(1, 2)) %>%
   select(year, race, sex, age, edclass, inst_rate_lag = inst_rate) %>%
