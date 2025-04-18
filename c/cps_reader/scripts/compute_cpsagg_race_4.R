@@ -1,5 +1,7 @@
+# This programme creates race 4, the difference between the total population and race 1-3
+
 compute_cpsagg_race_4 <- function(final_data) {
-  # Divide dataset in dataset with total numbers and dataset with known race (race 1, 2, 3)
+  # Divide dataset in dataset with total numbers and dataset with known race 1-3
   race_total <- final_data %>% filter(race == 0)
   race_subgroups <- final_data %>% filter(race %in% c(1, 2, 3))
   
@@ -8,7 +10,7 @@ compute_cpsagg_race_4 <- function(final_data) {
     group_by(year, sex, age, educ) %>%
     summarise(total_known_races = sum(tpop_2, na.rm = TRUE), .groups = "drop")
   
-  # Calculate race 4 population: total - (race 1 + race 2 + race 3)
+  # Race 4 population: total (race 0) - (race 1 + race 2 + race 3)
   race_4_data <- left_join(race_total, race_subgroup_totals, by = c("year", "sex", "age", "educ")) %>%
     mutate(
       tpop_2 = tpop_2 - total_known_races,  
@@ -17,7 +19,7 @@ compute_cpsagg_race_4 <- function(final_data) {
     ) %>%
     select(year, race, sex, age, educ, tpop_2)  # Throw unnessary columns out
   
-  # We add race 4 to the full dataset
+  # Add race 4 to the full dataset
   final_data <- bind_rows(final_data, race_4_data)
   
   return(final_data)
