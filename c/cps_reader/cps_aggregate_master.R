@@ -15,7 +15,7 @@ source(paste0(subprogram_path, "load_20132021_cpsfiles.R"))
 source(paste0(subprogram_path, "compute_cpsagg_race_4.R"))
 
 # Define parent directory and subfolders for each race
-base_folder_xslx <- "/Users/Stata/SeminarHealthSociety/data/cps_files"
+base_folder_xslx <- "/Users/Stata/SeminarHealthSociety/data/raw_cps_files"
 race_folders <- c("race_1" = 1, "race_2" = 2, "race_3" = 3, "race_0" = 0)
 
 # Output file
